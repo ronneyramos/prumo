@@ -196,81 +196,122 @@ def _export_excel(df: pd.DataFrame, nome_arquivo: str = "dados.xlsx") -> bytes:
 # ── Autenticação e controle de acesso ────────────────────────────────────────
 
 def _auth_login():
-    """Tela de login/cadastro — layout split estilo mockup Prumo Modelo 3."""
+    """Tela de login fiel ao mockup: fundo bege, split, guindaste SVG."""
+    if "auth_mode" not in st.session_state:
+        st.session_state.auth_mode = "login"
+
     st.markdown("""<style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
         html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
         section[data-testid="stSidebar"] { display: none !important; }
         #MainMenu, footer, header { visibility: hidden; }
-        .stApp { background: #EDEAE3; }
-        .main .block-container { max-width: 1100px !important; padding-top: 4vh !important; }
+        .stApp { background: #EDE8DF !important; }
+        .main .block-container {
+            max-width: 1080px !important; padding-top: 5vh !important;
+            padding-left: 2rem !important; padding-right: 2rem !important;
+        }
+        /* Inputs com borda teal — igual ao mockup */
+        [data-testid="stTextInput"] input {
+            border-radius: 8px !important;
+            border: 1.5px solid #2AACA0 !important;
+            font-size: 14px !important; background: #FFFFFF !important;
+            padding: 12px 14px !important; color: #1B3A5E !important;
+        }
+        [data-testid="stTextInput"] input::placeholder { color: #A8B0BB !important; }
+        [data-testid="stTextInput"] input:focus {
+            border-color: #2AACA0 !important;
+            box-shadow: 0 0 0 3px rgba(42,172,160,0.15) !important;
+            outline: none !important;
+        }
+        /* Botão laranja pill — igual ao mockup */
         button[kind="primary"] {
             background: #F07820 !important; border: none !important;
-            border-radius: 50px !important; font-weight: 800 !important;
-            font-size: 14px !important; letter-spacing: 1.5px; text-transform: uppercase;
-            box-shadow: 0 4px 16px rgba(240,120,32,0.35) !important; transition: all 0.2s !important;
+            border-radius: 8px !important; font-weight: 800 !important;
+            font-size: 15px !important; letter-spacing: 2px; text-transform: uppercase;
+            box-shadow: 0 4px 14px rgba(240,120,32,0.30) !important;
+            transition: background 0.2s !important; height: 48px !important;
         }
-        button[kind="primary"]:hover { background: #D9660E !important; transform: translateY(-1px) !important; }
-        button[kind="secondary"] {
-            border-radius: 50px !important; font-weight: 600 !important; font-size: 13px !important;
-            border-color: #C8C3BB !important; color: #1B3A5E !important;
+        button[kind="primary"]:hover { background: #D9660E !important; }
+        /* Card branco do formulário */
+        [data-testid="stForm"] {
+            background: #FFFFFF !important; border: none !important;
+            border-radius: 12px !important; padding: 28px 28px 20px !important;
+            box-shadow: 0 2px 24px rgba(27,58,94,0.09) !important;
+            margin-bottom: 14px !important;
         }
-        button[kind="secondary"]:hover { border-color: #2AACA0 !important; color: #2AACA0 !important; }
-        [data-testid="stTextInput"] input {
-            border-radius: 8px !important; border: 1.5px solid #D0CCC4 !important;
-            font-size: 14px !important; background: #FFFFFF !important;
-        }
-        [data-testid="stTextInput"] input:focus {
-            border-color: #2AACA0 !important; box-shadow: 0 0 0 3px rgba(42,172,160,0.12) !important;
-        }
-        [data-testid="stTabs"] button[role="tab"] {
-            font-size: 12px !important; font-weight: 700 !important;
-            text-transform: uppercase; letter-spacing: 0.8px; color: #A0A8B0 !important;
-        }
-        [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            color: #1B3A5E !important; border-bottom: 3px solid #F07820 !important;
-        }
+        /* Remove label nativo do text_input (usamos labels HTML customizados) */
+        [data-testid="stTextInput"] label { display: none !important; }
+        [data-testid="stTextInput"] { margin-bottom: 2px !important; }
+        /* Labels do selectbox no cadastro */
+        [data-testid="stSelectbox"] label { font-size: 12px !important; color: #6B7280 !important; }
     </style>""", unsafe_allow_html=True)
 
-    col_form, col_illus = st.columns([1.05, 0.95], gap="large")
+    col_form, col_illus = st.columns([1.1, 0.9], gap="large")
 
+    # ─── COLUNA ESQUERDA — Logo + Form ───────────────────────────────────────
     with col_form:
-        # ── Logo ─────────────────────────────────────────────────────────────
+        # Logo com monograma geométrico P
         st.markdown("""
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:2.2rem;margin-top:0.5rem;">
-            <div style="width:46px;height:46px;background:#1B3A5E;border-radius:10px;
-                        display:flex;align-items:center;justify-content:center;font-size:22px;">🏗️</div>
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:2.4rem;">
+            <svg width="58" height="58" viewBox="0 0 58 58" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <!-- P esquerdo navy -->
+                <rect x="3" y="3" width="10" height="52" rx="2" fill="#1B3A5E"/>
+                <rect x="3" y="3" width="30" height="10" rx="2" fill="#1B3A5E"/>
+                <rect x="3" y="22" width="25" height="10" rx="0" fill="#1B3A5E"/>
+                <rect x="23" y="3" width="10" height="29" rx="0" fill="#1B3A5E"/>
+                <!-- P direito teal (offset) -->
+                <rect x="18" y="14" width="9" height="41" rx="2" fill="#2AACA0"/>
+                <rect x="18" y="14" width="30" height="9" rx="2" fill="#2AACA0"/>
+                <rect x="18" y="31" width="25" height="9" rx="0" fill="#2AACA0"/>
+                <rect x="37" y="14" width="9" height="26" rx="0" fill="#2AACA0"/>
+            </svg>
             <div>
                 <div style="line-height:1;">
-                    <span style="font-size:1.6rem;font-weight:900;color:#1B3A5E;letter-spacing:-0.5px;">PRUMO</span>
-                    <span style="font-size:0.85rem;font-weight:700;color:#2AACA0;margin-left:3px;vertical-align:super;">ERP</span>
+                    <span style="font-size:1.9rem;font-weight:900;color:#1B3A5E;letter-spacing:2px;">PRUMO</span>
                 </div>
-                <div style="font-size:9px;color:#A0A8B0;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:2px;">
+                <div style="font-size:1rem;font-weight:700;color:#2AACA0;letter-spacing:2px;margin-top:1px;">ERP</div>
+                <div style="font-size:8.5px;color:#A0A8B0;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;">
                     Software de Construção Civil
                 </div>
             </div>
         </div>
-        <div style="margin-bottom:1.6rem;">
-            <div style="font-size:1.45rem;font-weight:900;color:#1B3A5E;text-transform:uppercase;letter-spacing:0.3px;line-height:1.2;">
-                Olá, Gestor!
-            </div>
-            <div style="font-size:0.95rem;font-weight:600;color:#1B3A5E;opacity:0.55;text-transform:uppercase;letter-spacing:0.3px;margin-top:4px;">
-                Acesse sua conta de construção
-            </div>
-        </div>
         """, unsafe_allow_html=True)
 
-        # ── Tabs ─────────────────────────────────────────────────────────────
-        aba_login, aba_cadastro = st.tabs(["🔑 Entrar", "🏢 Criar conta"])
+        if st.session_state.auth_mode == "login":
+            # Saudação
+            st.markdown("""
+            <div style="margin-bottom:1.6rem;">
+                <div style="font-size:1.55rem;font-weight:900;color:#1B3A5E;text-transform:uppercase;
+                            letter-spacing:0.5px;line-height:1.15;">OLÁ, GESTOR!</div>
+                <div style="font-size:0.9rem;font-weight:700;color:#1B3A5E;text-transform:uppercase;
+                            opacity:0.55;margin-top:5px;letter-spacing:0.3px;">
+                    ACESSE SUA CONTA DE CONSTRUÇÃO
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        with aba_login:
             with st.form("form_login"):
-                st.markdown('<p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6B7280;margin:0 0 4px 0;">E-mail da Obra</p>', unsafe_allow_html=True)
-                email = st.text_input("email_login", placeholder="engenheiro@obra.com", label_visibility="collapsed")
-                st.markdown('<p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6B7280;margin:8px 0 4px 0;">Senha</p>', unsafe_allow_html=True)
-                senha  = st.text_input("senha_login", type="password", label_visibility="collapsed")
-                entrar = st.form_submit_button("Entrar", use_container_width=True, type="primary")
-            st.markdown('<p style="text-align:center;font-size:12px;color:#A0A8B0;margin-top:6px;">Esqueceu a senha? Entre em contato com o suporte.</p>', unsafe_allow_html=True)
+                st.markdown('<p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6B7280;margin:0 0 6px;">E-MAIL DA OBRA</p>', unsafe_allow_html=True)
+                email = st.text_input("email", placeholder="engenheiro@obra.com", label_visibility="collapsed")
+                st.markdown('<p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6B7280;margin:14px 0 6px;">SENHA</p>', unsafe_allow_html=True)
+                senha  = st.text_input("senha", type="password", label_visibility="collapsed")
+                st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
+                entrar = st.form_submit_button("ENTRAR", use_container_width=True, type="primary")
+
+            st.markdown("""
+            <div style="text-align:center;margin-top:14px;">
+                <p style="font-size:13px;color:#6B7280;margin:0 0 6px;">Esqueceu a senha?</p>
+                <p style="font-size:13px;color:#6B7280;margin:0;">
+                    Ainda não tem conta?
+                    <strong style="color:#1B3A5E;cursor:pointer;">Solicite uma demonstração</strong>
+                    ou <strong style="color:#1B3A5E;cursor:pointer;">cadastre-se.</strong>
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if st.button("Criar conta gratuita →", key="btn_ir_cadastro", use_container_width=False):
+                st.session_state.auth_mode = "cadastro"
+                st.rerun()
 
             if entrar:
                 if not email or not senha:
@@ -308,8 +349,17 @@ def _auth_login():
                     st.error("Login inválido. Verifique e-mail e senha.")
                     print(f"[auth] erro login: {e}")
 
-        with aba_cadastro:
-            st.markdown('<p style="font-size:13px;color:#1B3A5E;font-weight:600;margin-bottom:12px;">Crie sua conta e comece a usar gratuitamente por 30 dias.</p>', unsafe_allow_html=True)
+        else:  # ── Criar conta ──────────────────────────────────────────────
+            st.markdown("""
+            <div style="margin-bottom:1.4rem;">
+                <div style="font-size:1.4rem;font-weight:900;color:#1B3A5E;text-transform:uppercase;">
+                    CRIAR CONTA
+                </div>
+                <div style="font-size:0.85rem;color:#6B7280;margin-top:4px;">
+                    30 dias gratuitos · sem cartão de crédito
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             with st.form("form_cadastro"):
                 nome_usuario = st.text_input("Nome completo")
                 email_cad    = st.text_input("E-mail")
@@ -317,8 +367,10 @@ def _auth_login():
                 nome_empresa = st.text_input("Nome da empresa / construtora")
                 cidade_cad   = st.text_input("Cidade", value="Fortaleza")
                 estado_cad   = st.selectbox("Estado", ["CE","SP","RJ","MG","BA","PE","RS","SC","PR","GO","DF","AM","PA","MA","PI","RN","PB","AL","SE","ES","MT","MS","RO","AC","RR","AP","TO"])
-                cadastrar    = st.form_submit_button("Criar conta", use_container_width=True, type="primary")
-
+                cadastrar    = st.form_submit_button("CRIAR CONTA", use_container_width=True, type="primary")
+            if st.button("← Voltar ao login", key="btn_voltar_login"):
+                st.session_state.auth_mode = "login"
+                st.rerun()
             if cadastrar:
                 if not all([nome_usuario, email_cad, senha_cad, nome_empresa]):
                     st.error("Preencha todos os campos obrigatórios.")
@@ -328,62 +380,97 @@ def _auth_login():
                     try:
                         from db import sb
                         res_cad = sb().auth.sign_up({
-                            "email":    email_cad,
-                            "password": senha_cad,
-                            "options":  {"data": {"full_name": nome_usuario, "role": "admin"}},
+                            "email": email_cad, "password": senha_cad,
+                            "options": {"data": {"full_name": nome_usuario, "role": "admin"}},
                         })
                         if not res_cad.user:
                             st.error("Não foi possível criar o usuário. Tente outro e-mail.")
                         else:
-                            user_id   = res_cad.user.id
-                            res_login = sb().auth.sign_in_with_password({"email": email_cad, "password": senha_cad})
+                            user_id = res_cad.user.id
+                            sb().auth.sign_in_with_password({"email": email_cad, "password": senha_cad})
                             try:
                                 rpc_res    = sb().rpc("registrar_empresa", {"p_nome_empresa": nome_empresa, "p_user_id": user_id}).execute()
                                 empresa_id = rpc_res.data
                             except Exception as _e_rpc:
-                                print(f"[cadastro] RPC error: {_e_rpc}")
+                                print(f"[cadastro] RPC: {_e_rpc}")
                                 emp_res    = sb().table("empresas").insert({"nome": nome_empresa, "cidade": cidade_cad, "estado": estado_cad}).execute()
                                 empresa_id = (emp_res.data[0] if emp_res.data else {}).get("id")
                             st.session_state.usuario           = {"id": user_id, "email": email_cad, "nome": nome_usuario}
                             st.session_state.usuario_role      = "admin"
                             st.session_state.usuario_obras_ids = []
                             st.session_state.empresa_id        = str(empresa_id) if empresa_id else "00000000-0000-0000-0000-000000000001"
-                            st.success(f"✅ Conta criada! Bem-vindo(a) à {nome_empresa}!")
+                            st.success(f"✅ Bem-vindo(a) à {nome_empresa}!")
                             st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao criar conta: {e}")
                         print(f"[cadastro] erro: {e}")
 
+    # ─── COLUNA DIREITA — Ilustração SVG prédio + guindaste ──────────────────
     with col_illus:
         st.markdown("""
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
-                    height:100%;min-height:460px;padding:2rem;">
-            <div style="background:linear-gradient(135deg,#1B3A5E 0%,#2A5278 100%);
-                        border-radius:20px;padding:3rem 2rem;text-align:center;width:100%;
-                        box-shadow:0 8px 32px rgba(27,58,94,0.2);">
-                <div style="font-size:5rem;margin-bottom:1rem;">🏗️</div>
-                <div style="color:#FFFFFF;font-size:1.1rem;font-weight:800;text-transform:uppercase;
-                            letter-spacing:1px;margin-bottom:8px;">Gestão Completa</div>
-                <div style="color:#2AACA0;font-size:0.85rem;font-weight:600;text-transform:uppercase;
-                            letter-spacing:1.5px;margin-bottom:1.5rem;">de Obras e Contratos</div>
-                <div style="display:flex;flex-direction:column;gap:10px;text-align:left;">
-                    <div style="color:rgba(255,255,255,0.75);font-size:13px;display:flex;align-items:center;gap:8px;">
-                        <span style="color:#2AACA0;font-size:16px;">✓</span> Orçamento e Medições
-                    </div>
-                    <div style="color:rgba(255,255,255,0.75);font-size:13px;display:flex;align-items:center;gap:8px;">
-                        <span style="color:#2AACA0;font-size:16px;">✓</span> Financeiro e Fluxo de Caixa
-                    </div>
-                    <div style="color:rgba(255,255,255,0.75);font-size:13px;display:flex;align-items:center;gap:8px;">
-                        <span style="color:#2AACA0;font-size:16px;">✓</span> Diário de Obra (RDO)
-                    </div>
-                    <div style="color:rgba(255,255,255,0.75);font-size:13px;display:flex;align-items:center;gap:8px;">
-                        <span style="color:#2AACA0;font-size:16px;">✓</span> Cronograma e EAP
-                    </div>
-                    <div style="color:rgba(255,255,255,0.75);font-size:13px;display:flex;align-items:center;gap:8px;">
-                        <span style="color:#2AACA0;font-size:16px;">✓</span> Qualidade e Suprimentos
-                    </div>
-                </div>
-            </div>
+        <div style="display:flex;align-items:center;justify-content:center;
+                    padding-top:1rem;padding-bottom:1rem;">
+          <svg width="100%" viewBox="0 0 340 430" xmlns="http://www.w3.org/2000/svg" fill="none">
+
+            <!-- ── PRÉDIO (estrutura em construção) ── -->
+            <!-- Colunas verticais -->
+            <rect x="30"  y="150" width="9" height="265" fill="#1B3A5E"/>
+            <rect x="100" y="150" width="7" height="265" fill="#1B3A5E" opacity="0.75"/>
+            <rect x="168" y="150" width="7" height="265" fill="#1B3A5E" opacity="0.75"/>
+            <rect x="228" y="150" width="9" height="265" fill="#1B3A5E"/>
+
+            <!-- Lajes horizontais (pisos) -->
+            <rect x="30" y="150" width="207" height="7" fill="#1B3A5E"/>
+            <rect x="30" y="193" width="207" height="7" fill="#1B3A5E"/>
+            <rect x="30" y="236" width="207" height="7" fill="#1B3A5E"/>
+            <rect x="30" y="279" width="207" height="7" fill="#1B3A5E"/>
+            <rect x="30" y="322" width="207" height="7" fill="#1B3A5E"/>
+            <rect x="30" y="365" width="207" height="7" fill="#1B3A5E"/>
+            <rect x="30" y="408" width="207" height="7" fill="#1B3A5E"/>
+
+            <!-- Aberturas/janelas — andar 6 (topo) -->
+            <rect x="44"  y="162" width="50" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <rect x="113" y="162" width="48" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <rect x="179" y="162" width="44" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <!-- Andar 5 -->
+            <rect x="44"  y="205" width="50" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <rect x="113" y="205" width="48" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <rect x="179" y="205" width="44" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <!-- Andar 4 -->
+            <rect x="44"  y="248" width="50" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <rect x="113" y="248" width="48" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <rect x="179" y="248" width="44" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <!-- Andar 3 -->
+            <rect x="44"  y="291" width="50" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <rect x="113" y="291" width="48" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <rect x="179" y="291" width="44" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <!-- Andar 2 -->
+            <rect x="44"  y="334" width="50" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <rect x="113" y="334" width="48" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <rect x="179" y="334" width="44" height="24" rx="3" stroke="#2AACA0" stroke-width="2"/>
+
+            <!-- ── GUINDASTE (torre) ── -->
+            <!-- Mastro vertical -->
+            <rect x="272" y="15" width="10" height="400" rx="2" fill="#2AACA0"/>
+            <!-- Lança principal (horizontal) -->
+            <rect x="175" y="15" width="155" height="8" rx="2" fill="#2AACA0"/>
+            <!-- Contra-lança -->
+            <rect x="175" y="15" width="97" height="6" rx="2" fill="#2AACA0" opacity="0.5"/>
+            <!-- Contrapeso -->
+            <rect x="170" y="21" width="25" height="18" rx="3" fill="#2AACA0" opacity="0.5"/>
+            <!-- Cabos de sustentação da lança -->
+            <line x1="278" y1="23" x2="205" y2="23" stroke="#2AACA0" stroke-width="1.5" opacity="0.4"/>
+            <line x1="278" y1="23" x2="315" y2="23" stroke="#2AACA0" stroke-width="1.5" opacity="0.4"/>
+            <line x1="205" y1="23" x2="278" y2="55" stroke="#2AACA0" stroke-width="1.5" opacity="0.5"/>
+            <line x1="315" y1="23" x2="278" y2="55" stroke="#2AACA0" stroke-width="1.5" opacity="0.5"/>
+            <!-- Cabo do gancho (vertical da ponta da lança) -->
+            <line x1="308" y1="23" x2="308" y2="175" stroke="#2AACA0" stroke-width="2"/>
+            <!-- Gancho -->
+            <rect x="300" y="174" width="16" height="12" rx="3" stroke="#2AACA0" stroke-width="2"/>
+            <line x1="308" y1="186" x2="308" y2="196" stroke="#2AACA0" stroke-width="2"/>
+            <path d="M300,196 Q308,206 316,196" stroke="#2AACA0" stroke-width="2" stroke-linecap="round"/>
+
+          </svg>
         </div>
         """, unsafe_allow_html=True)
 
