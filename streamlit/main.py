@@ -205,40 +205,35 @@ def _auth_login():
         .stApp { background: #F0F2F5; }
         .main .block-container { max-width: 460px !important; padding-top: 5vh !important; }
         button[kind="primary"] {
-            background: #06B6D4 !important;
-            border: none !important; border-radius: 50px !important;
-            font-weight: 700 !important; font-size: 13px !important;
-            letter-spacing: 0.5px; text-transform: uppercase;
-            box-shadow: 0 3px 10px rgba(6,182,212,0.35) !important;
+            background: #2AACA0 !important;
+            border: none !important; border-radius: 8px !important;
+            font-weight: 700 !important; font-size: 14px !important;
+            box-shadow: 0 3px 10px rgba(42,172,160,0.30) !important;
         }
-        button[kind="primary"]:hover { background: #0891B2 !important; }
+        button[kind="primary"]:hover { background: #23948A !important; }
         [data-testid="stTextInput"] input {
-            border-radius: 6px !important; border-color: #CBD5E1 !important;
+            border-radius: 6px !important; border-color: #D0D5DC !important;
             font-size: 14px !important;
         }
         [data-testid="stTextInput"] input:focus {
-            border-color: #06B6D4 !important;
-            box-shadow: 0 0 0 3px rgba(6,182,212,0.12) !important;
+            border-color: #2AACA0 !important;
+            box-shadow: 0 0 0 3px rgba(42,172,160,0.12) !important;
         }
-        [data-testid="stTabs"] button[role="tab"] {
-            font-size: 13px !important; font-weight: 600 !important;
-            text-transform: uppercase; letter-spacing: 0.5px;
-        }
+        [data-testid="stTabs"] button[role="tab"] { font-size: 13px !important; font-weight: 600 !important; }
         [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            color: #06B6D4 !important; border-bottom: 3px solid #06B6D4 !important; font-weight: 700 !important;
+            color: #1B3A5E !important; border-bottom: 3px solid #2AACA0 !important; font-weight: 700 !important;
         }
     </style>""", unsafe_allow_html=True)
 
     st.markdown("""
     <div style="text-align:center; padding: 2rem 0 1.5rem 0;">
-        <div style="display:inline-flex;align-items:center;justify-content:center;
-                    width:64px;height:64px;background:#06B6D4;
-                    border-radius:12px;font-size:30px;margin-bottom:16px;
-                    box-shadow:0 4px 16px rgba(6,182,212,0.4);">🏗️</div>
-        <h1 style="color:#0A1628;font-size:2rem;font-weight:800;margin:0;letter-spacing:-0.5px;">Prumo</h1>
-        <p style="color:#64748B;margin:6px 0 0 0;font-size:13px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">
-            Sistema de Gestão para Construtoras
+        <div style="margin-bottom:18px;">
+            <span style="font-size:2.2rem;font-weight:900;color:#1B3A5E;letter-spacing:-1px;">PRUMO</span><span style="font-size:1.1rem;font-weight:700;color:#2AACA0;margin-left:4px;vertical-align:super;">ERP</span>
+        </div>
+        <p style="color:#A0A8B0;margin:0;font-size:12px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">
+            Software de Construção Civil
         </p>
+        <div style="width:40px;height:3px;background:#2AACA0;border-radius:2px;margin:14px auto 0;"></div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -3125,6 +3120,11 @@ def pagina_eap():
 # ── Layout principal ──────────────────────────────────────────────────────────
 
 def _apply_css():
+    # Paleta Prumo Modelo 3:
+    # Navy Blue  #1B3A5E  — sidebar, títulos
+    # Blue-Green #2AACA0  — acento, botões, valores
+    # Concrete   #A0A8B0  — texto secundário
+    # Background #F4F6F8  — fundo do app
     st.markdown("""<style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
@@ -3132,7 +3132,7 @@ def _apply_css():
         html, body, [class*="css"], [class*="st-"] {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
         }
-        .stApp { background-color: #F0F2F5; }
+        .stApp { background-color: #F4F6F8; }
         .main .block-container {
             padding-top: 1.8rem !important;
             padding-bottom: 2rem !important;
@@ -3144,118 +3144,110 @@ def _apply_css():
 
         /* ── Títulos ── */
         h1 {
-            color: #0A1628 !important;
+            color: #1B3A5E !important;
             font-weight: 800 !important;
             font-size: 1.55rem !important;
             letter-spacing: -0.3px;
             margin-bottom: 1.2rem !important;
         }
-        h2, h3 { color: #1A2744 !important; font-weight: 700 !important; }
+        h2, h3 { color: #1B3A5E !important; font-weight: 700 !important; }
 
-        /* ── Métricas — estilo TOTVS Protheus ── */
+        /* ── Métricas ── */
         [data-testid="stMetric"] {
             background: #FFFFFF;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             padding: 20px !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-            border-top: 3px solid #06B6D4;
+            box-shadow: 0 2px 10px rgba(27,58,94,0.08);
+            border-left: 4px solid #2AACA0;
             transition: box-shadow 0.2s, transform 0.2s;
         }
         [data-testid="stMetric"]:hover {
-            box-shadow: 0 6px 18px rgba(6,182,212,0.15);
+            box-shadow: 0 6px 20px rgba(42,172,160,0.15);
             transform: translateY(-2px);
         }
         [data-testid="stMetric"] label {
-            color: #64748B !important;
+            color: #A0A8B0 !important;
             font-size: 10px !important;
             font-weight: 700 !important;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
         [data-testid="stMetricValue"] {
-            color: #06B6D4 !important;
+            color: #2AACA0 !important;
             font-size: 1.7rem !important;
             font-weight: 800 !important;
         }
         [data-testid="stMetricDelta"] { font-size: 12px !important; font-weight: 600 !important; }
 
-        /* ── Botões primários — pílula estilo TOTVS ── */
+        /* ── Botões primários ── */
         button[kind="primary"] {
-            background: #06B6D4 !important;
+            background: #2AACA0 !important;
             border: none !important;
             color: #FFFFFF !important;
             font-weight: 700 !important;
-            border-radius: 50px !important;
+            border-radius: 8px !important;
             font-size: 13px !important;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            box-shadow: 0 2px 8px rgba(6,182,212,0.35) !important;
+            letter-spacing: 0.3px;
+            box-shadow: 0 2px 8px rgba(42,172,160,0.30) !important;
             transition: all 0.2s !important;
         }
         button[kind="primary"]:hover {
-            background: #0891B2 !important;
-            box-shadow: 0 4px 14px rgba(6,182,212,0.45) !important;
+            background: #23948A !important;
+            box-shadow: 0 4px 14px rgba(42,172,160,0.40) !important;
             transform: translateY(-1px) !important;
         }
 
         /* ── Botões secundários ── */
         button[kind="secondary"] {
-            border-radius: 50px !important;
+            border-radius: 8px !important;
             font-weight: 600 !important;
             font-size: 13px !important;
-            border-color: #CBD5E1 !important;
-            color: #475569 !important;
-            text-transform: uppercase;
-            letter-spacing: 0.4px;
+            border-color: #D0D5DC !important;
+            color: #1B3A5E !important;
         }
         button[kind="secondary"]:hover {
-            border-color: #06B6D4 !important;
-            color: #06B6D4 !important;
-            background: #ECFEFF !important;
+            border-color: #2AACA0 !important;
+            color: #2AACA0 !important;
+            background: #F0FAF9 !important;
         }
 
         /* ── Abas ── */
         [data-testid="stTabs"] button[role="tab"] {
             font-weight: 600;
             font-size: 13px;
-            color: #64748B !important;
+            color: #A0A8B0 !important;
             padding: 10px 18px !important;
             border-radius: 0 !important;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
         [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            color: #06B6D4 !important;
-            border-bottom: 3px solid #06B6D4 !important;
+            color: #1B3A5E !important;
+            border-bottom: 3px solid #2AACA0 !important;
             font-weight: 700 !important;
             background: transparent !important;
         }
 
         /* ── Alertas ── */
-        [data-testid="stAlert"] {
-            border-radius: 8px !important;
-            font-size: 14px !important;
-        }
+        [data-testid="stAlert"] { border-radius: 8px !important; font-size: 14px !important; }
 
         /* ── Tabelas ── */
         [data-testid="stDataFrameResizable"] th {
-            background-color: #F1F5F9 !important;
-            color: #0A1628 !important;
+            background-color: #EEF1F5 !important;
+            color: #1B3A5E !important;
             font-weight: 700 !important;
             font-size: 11px !important;
             text-transform: uppercase;
             letter-spacing: 0.7px;
-            border-bottom: 2px solid #E2E8F0 !important;
+            border-bottom: 2px solid #D8DDE5 !important;
         }
         [data-testid="stDataFrameResizable"] tr:hover td {
-            background-color: #ECFEFF !important;
+            background-color: #F0FAF9 !important;
         }
 
         /* ── Expanders ── */
         [data-testid="stExpander"] {
-            border: 1px solid #E2E8F0 !important;
-            border-radius: 8px !important;
+            border: 1px solid #E0E5EB !important;
+            border-radius: 10px !important;
             background: #FFFFFF;
         }
 
@@ -3263,47 +3255,47 @@ def _apply_css():
         [data-testid="stTextInput"] input,
         [data-testid="stNumberInput"] input {
             border-radius: 6px !important;
-            border-color: #CBD5E1 !important;
+            border-color: #D0D5DC !important;
             font-size: 14px !important;
         }
         [data-testid="stTextInput"] input:focus,
         [data-testid="stNumberInput"] input:focus {
-            border-color: #06B6D4 !important;
-            box-shadow: 0 0 0 3px rgba(6,182,212,0.12) !important;
+            border-color: #2AACA0 !important;
+            box-shadow: 0 0 0 3px rgba(42,172,160,0.12) !important;
         }
 
-        /* ── Sidebar — quase preta estilo Protheus ── */
+        /* ── Sidebar — Navy Blue do Modelo 3 ── */
         section[data-testid="stSidebar"] > div:first-child {
-            background: #080D1A !important;
+            background: #1B3A5E !important;
         }
         section[data-testid="stSidebar"] button[kind="secondary"] {
-            background-color: rgba(255,255,255,0.03) !important;
-            border: 1px solid rgba(255,255,255,0.07) !important;
-            color: #94A3B8 !important;
-            border-radius: 6px !important;
+            background-color: rgba(255,255,255,0.04) !important;
+            border: 1px solid rgba(255,255,255,0.08) !important;
+            color: #A0B4C8 !important;
+            border-radius: 8px !important;
             font-size: 13px !important;
             font-weight: 500 !important;
             transition: all 0.2s !important;
         }
         section[data-testid="stSidebar"] button[kind="secondary"]:hover {
-            background-color: rgba(6,182,212,0.15) !important;
-            border-color: rgba(6,182,212,0.4) !important;
-            color: #06B6D4 !important;
+            background-color: rgba(42,172,160,0.18) !important;
+            border-color: rgba(42,172,160,0.5) !important;
+            color: #2AACA0 !important;
         }
         section[data-testid="stSidebar"] button[kind="primary"] {
-            background: #06B6D4 !important;
+            background: #2AACA0 !important;
             border: none !important;
             color: #FFFFFF !important;
-            border-radius: 6px !important;
+            border-radius: 8px !important;
             font-weight: 700 !important;
         }
         section[data-testid="stSidebar"] .stMarkdown p,
         section[data-testid="stSidebar"] .stMarkdown span,
         section[data-testid="stSidebar"] caption {
-            color: #64748B !important;
+            color: #7A9AB8 !important;
             font-size: 12px !important;
         }
-        hr { border-color: rgba(255,255,255,0.06) !important; }
+        hr { border-color: rgba(255,255,255,0.08) !important; }
     </style>""", unsafe_allow_html=True)
 
 
@@ -3329,24 +3321,22 @@ def app():
     )
     _usr = st.session_state.get("usuario", {})
     st.sidebar.markdown(
-        f"""<div style='padding:18px 12px 14px;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:4px;'>
-            <div style='display:flex;align-items:center;gap:10px;margin-bottom:14px;'>
-                <div style='width:38px;height:38px;background:#06B6D4;
-                            border-radius:8px;display:flex;align-items:center;justify-content:center;
-                            font-size:20px;flex-shrink:0;box-shadow:0 2px 10px rgba(6,182,212,0.5);'>🏗️</div>
-                <div>
-                    <div style='color:#F1F5F9;font-size:18px;font-weight:800;letter-spacing:-0.3px;line-height:1;'>Prumo</div>
-                    <div style='color:#334155;font-size:10px;font-weight:600;margin-top:3px;letter-spacing:0.8px;text-transform:uppercase;'>ERP de Construção</div>
+        f"""<div style='padding:20px 14px 16px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:6px;'>
+            <div style='margin-bottom:16px;'>
+                <div style='font-size:20px;font-weight:900;color:#FFFFFF;letter-spacing:-0.5px;line-height:1;'>
+                    PRUMO<span style='font-size:11px;font-weight:700;color:#2AACA0;margin-left:3px;vertical-align:super;'>ERP</span>
                 </div>
+                <div style='font-size:9px;color:#7A9AB8;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;margin-top:4px;'>Software de Construção Civil</div>
+                <div style='width:28px;height:2px;background:#2AACA0;border-radius:1px;margin-top:8px;'></div>
             </div>
-            <div style='display:flex;align-items:center;gap:8px;background:rgba(6,182,212,0.08);
-                        border-radius:6px;padding:8px 10px;border:1px solid rgba(6,182,212,0.15);'>
-                <div style='width:28px;height:28px;background:#0F2A3A;
+            <div style='display:flex;align-items:center;gap:9px;background:rgba(255,255,255,0.05);
+                        border-radius:8px;padding:9px 11px;border:1px solid rgba(255,255,255,0.08);'>
+                <div style='width:30px;height:30px;background:#2AACA0;
                             border-radius:50%;display:flex;align-items:center;justify-content:center;
-                            font-size:13px;border:1px solid rgba(6,182,212,0.3);'>👤</div>
+                            font-size:14px;flex-shrink:0;'>👤</div>
                 <div>
-                    <div style='color:#E2E8F0;font-size:13px;font-weight:600;line-height:1;'>{_usr.get('nome','Usuário')}</div>
-                    <div style='color:#06B6D4;font-size:10px;margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'>{_role().capitalize()}</div>
+                    <div style='color:#E8EFF5;font-size:13px;font-weight:600;line-height:1;'>{_usr.get('nome','Usuário')}</div>
+                    <div style='color:#2AACA0;font-size:10px;margin-top:3px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'>{_role().capitalize()}</div>
                 </div>
             </div>
         </div>""",
