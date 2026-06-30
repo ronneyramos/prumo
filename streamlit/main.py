@@ -405,100 +405,72 @@ def _auth_login():
                         st.error(f"Erro ao criar conta: {e}")
                         print(f"[cadastro] erro: {e}")
 
-    # ─── COLUNA DIREITA — Ilustração SVG prédio + guindaste ──────────────────
     with col_illus:
-        st.markdown("""
-        <div style="display:flex;align-items:center;justify-content:center;
-                    padding-top:1rem;padding-bottom:1rem;">
-          <svg width="100%" viewBox="0 0 340 430" xmlns="http://www.w3.org/2000/svg" fill="none">
-
-            <!-- Chão -->
-            <line x1="10" y1="422" x2="330" y2="422" stroke="#1B3A5E" stroke-width="3" stroke-linecap="round" opacity="0.2"/>
-
-            <!-- ── PRÉDIO (estrutura em construção) ── -->
-            <!-- 4 colunas -->
-            <rect x="25"  y="130" width="11" height="292" fill="#1B3A5E"/>
-            <rect x="102" y="130" width="8"  height="292" fill="#1B3A5E" opacity="0.8"/>
-            <rect x="172" y="130" width="8"  height="292" fill="#1B3A5E" opacity="0.8"/>
-            <rect x="235" y="130" width="11" height="292" fill="#1B3A5E"/>
-
-            <!-- 7 lajes horizontais -->
-            <rect x="25" y="130" width="221" height="8" fill="#1B3A5E"/>
-            <rect x="25" y="170" width="221" height="6" fill="#1B3A5E"/>
-            <rect x="25" y="210" width="221" height="6" fill="#1B3A5E"/>
-            <rect x="25" y="250" width="221" height="6" fill="#1B3A5E"/>
-            <rect x="25" y="290" width="221" height="6" fill="#1B3A5E"/>
-            <rect x="25" y="330" width="221" height="6" fill="#1B3A5E"/>
-            <rect x="25" y="370" width="221" height="6" fill="#1B3A5E"/>
-            <rect x="25" y="415" width="221" height="8" fill="#1B3A5E"/>
-
-            <!-- Janelas/vãos — 3 por andar, 6 andares -->
-            <rect x="40"  y="142" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="115" y="142" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="184" y="142" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="40"  y="182" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="115" y="182" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="184" y="182" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="40"  y="222" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="115" y="222" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="184" y="222" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="40"  y="262" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="115" y="262" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="184" y="262" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="40"  y="302" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="115" y="302" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="184" y="302" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="40"  y="342" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="115" y="342" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-            <rect x="184" y="342" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>
-
-            <!-- Escada lateral (detalhe construtivo) -->
-            <line x1="236" y1="130" x2="249" y2="130" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>
-            <line x1="236" y1="170" x2="249" y2="170" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>
-            <line x1="236" y1="210" x2="249" y2="210" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>
-            <line x1="236" y1="250" x2="249" y2="250" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>
-            <line x1="236" y1="290" x2="249" y2="290" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>
-            <line x1="236" y1="330" x2="249" y2="330" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>
-            <line x1="249" y1="130" x2="249" y2="370" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>
-
-            <!-- ── GUINDASTE TORRE ── -->
-            <!-- Base -->
-            <rect x="271" y="392" width="20" height="30" rx="2" fill="#1B3A5E" opacity="0.35"/>
-            <!-- Mastro vertical -->
-            <rect x="276" y="22" width="10" height="395" rx="2" fill="#2AACA0"/>
-            <!-- Treliça do mastro -->
-            <line x1="276" y1="75"  x2="286" y2="95"  stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>
-            <line x1="286" y1="75"  x2="276" y2="95"  stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>
-            <line x1="276" y1="135" x2="286" y2="155" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>
-            <line x1="286" y1="135" x2="276" y2="155" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>
-            <line x1="276" y1="195" x2="286" y2="215" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>
-            <line x1="286" y1="195" x2="276" y2="215" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>
-            <line x1="276" y1="255" x2="286" y2="275" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>
-            <line x1="286" y1="255" x2="276" y2="275" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>
-            <!-- Cabeça (topo triangular) -->
-            <polygon points="269,22 281,8 293,22" fill="#2AACA0"/>
-            <!-- Lança principal → -->
-            <rect x="281" y="16" width="54" height="7" rx="2" fill="#2AACA0"/>
-            <!-- Contra-lança ← -->
-            <rect x="216" y="16" width="65" height="6" rx="2" fill="#2AACA0"/>
-            <!-- Contrapeso -->
-            <rect x="211" y="22" width="28" height="20" rx="3" fill="#1B3A5E" opacity="0.45"/>
-            <!-- Tirantes de sustentação -->
-            <line x1="281" y1="8"  x2="222" y2="22" stroke="#2AACA0" stroke-width="1.5" opacity="0.55"/>
-            <line x1="281" y1="8"  x2="328" y2="23" stroke="#2AACA0" stroke-width="1.5" opacity="0.55"/>
-            <!-- Trolley (carrinho) -->
-            <rect x="317" y="14" width="10" height="9" rx="1" fill="#1B3A5E" opacity="0.45"/>
-            <!-- Cabo do gancho -->
-            <line x1="322" y1="23" x2="322" y2="158" stroke="#2AACA0" stroke-width="2"/>
-            <!-- Bloco do gancho -->
-            <rect x="315" y="158" width="14" height="10" rx="2" fill="#2AACA0"/>
-            <!-- Gancho -->
-            <line x1="322" y1="168" x2="322" y2="178" stroke="#2AACA0" stroke-width="2"/>
-            <path d="M314,178 Q322,190 330,178" stroke="#2AACA0" stroke-width="2" stroke-linecap="round"/>
-
-          </svg>
-        </div>
-        """, unsafe_allow_html=True)
+        _svg = (
+            '<div style="display:flex;align-items:center;justify-content:center;padding-top:1rem;">'
+            '<svg width="100%" viewBox="0 0 340 430" xmlns="http://www.w3.org/2000/svg" fill="none">'
+            '<line x1="10" y1="422" x2="330" y2="422" stroke="#1B3A5E" stroke-width="3" stroke-linecap="round" opacity="0.2"/>'
+            '<rect x="25" y="130" width="11" height="292" fill="#1B3A5E"/>'
+            '<rect x="102" y="130" width="8" height="292" fill="#1B3A5E" opacity="0.8"/>'
+            '<rect x="172" y="130" width="8" height="292" fill="#1B3A5E" opacity="0.8"/>'
+            '<rect x="235" y="130" width="11" height="292" fill="#1B3A5E"/>'
+            '<rect x="25" y="130" width="221" height="8" fill="#1B3A5E"/>'
+            '<rect x="25" y="170" width="221" height="6" fill="#1B3A5E"/>'
+            '<rect x="25" y="210" width="221" height="6" fill="#1B3A5E"/>'
+            '<rect x="25" y="250" width="221" height="6" fill="#1B3A5E"/>'
+            '<rect x="25" y="290" width="221" height="6" fill="#1B3A5E"/>'
+            '<rect x="25" y="330" width="221" height="6" fill="#1B3A5E"/>'
+            '<rect x="25" y="370" width="221" height="6" fill="#1B3A5E"/>'
+            '<rect x="25" y="415" width="221" height="8" fill="#1B3A5E"/>'
+            '<rect x="40" y="142" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="115" y="142" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="184" y="142" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="40" y="182" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="115" y="182" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="184" y="182" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="40" y="222" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="115" y="222" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="184" y="222" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="40" y="262" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="115" y="262" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="184" y="262" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="40" y="302" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="115" y="302" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="184" y="302" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="40" y="342" width="56" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="115" y="342" width="50" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<rect x="184" y="342" width="46" height="22" rx="3" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
+            '<line x1="236" y1="130" x2="249" y2="130" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="236" y1="170" x2="249" y2="170" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="236" y1="210" x2="249" y2="210" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="236" y1="250" x2="249" y2="250" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="236" y1="290" x2="249" y2="290" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="236" y1="330" x2="249" y2="330" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="249" y1="130" x2="249" y2="370" stroke="#2AACA0" stroke-width="1.5" opacity="0.45"/>'
+            '<rect x="271" y="392" width="20" height="30" rx="2" fill="#1B3A5E" opacity="0.35"/>'
+            '<rect x="276" y="22" width="10" height="395" rx="2" fill="#2AACA0"/>'
+            '<line x1="276" y1="75" x2="286" y2="95" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="286" y1="75" x2="276" y2="95" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="276" y1="135" x2="286" y2="155" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="286" y1="135" x2="276" y2="155" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="276" y1="195" x2="286" y2="215" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="286" y1="195" x2="276" y2="215" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="276" y1="255" x2="286" y2="275" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>'
+            '<line x1="286" y1="255" x2="276" y2="275" stroke="#EDE8DF" stroke-width="1.5" opacity="0.45"/>'
+            '<polygon points="269,22 281,8 293,22" fill="#2AACA0"/>'
+            '<rect x="281" y="16" width="54" height="7" rx="2" fill="#2AACA0"/>'
+            '<rect x="216" y="16" width="65" height="6" rx="2" fill="#2AACA0"/>'
+            '<rect x="211" y="22" width="28" height="20" rx="3" fill="#1B3A5E" opacity="0.45"/>'
+            '<line x1="281" y1="8" x2="222" y2="22" stroke="#2AACA0" stroke-width="1.5" opacity="0.55"/>'
+            '<line x1="281" y1="8" x2="328" y2="23" stroke="#2AACA0" stroke-width="1.5" opacity="0.55"/>'
+            '<rect x="317" y="14" width="10" height="9" rx="1" fill="#1B3A5E" opacity="0.45"/>'
+            '<line x1="322" y1="23" x2="322" y2="158" stroke="#2AACA0" stroke-width="2"/>'
+            '<rect x="315" y="158" width="14" height="10" rx="2" fill="#2AACA0"/>'
+            '<line x1="322" y1="168" x2="322" y2="178" stroke="#2AACA0" stroke-width="2"/>'
+            '<path d="M314,178 Q322,190 330,178" stroke="#2AACA0" stroke-width="2" stroke-linecap="round"/>'
+            '</svg></div>'
+        )
+        st.markdown(_svg, unsafe_allow_html=True)
 
 
 def _role() -> str:
