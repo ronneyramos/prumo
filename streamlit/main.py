@@ -406,91 +406,9 @@ def _auth_login():
                         print(f"[cadastro] erro: {e}")
 
     with col_illus:
-        _svg = (
-            '<div style="display:flex;align-items:center;justify-content:center;padding-top:0.5rem;">'
-            '<svg width="100%" viewBox="0 0 340 440" xmlns="http://www.w3.org/2000/svg" fill="none">'
-            # Chão
-            '<line x1="8" y1="428" x2="332" y2="428" stroke="#1B3A5E" stroke-width="3" stroke-linecap="round" opacity="0.18"/>'
-            # Andaime esquerdo (escada/scaffolding)
-            '<rect x="8" y="145" width="5" height="283" fill="#2AACA0" opacity="0.45"/>'
-            '<line x1="8" y1="145" x2="58" y2="145" stroke="#2AACA0" stroke-width="2" opacity="0.4"/>'
-            '<line x1="8" y1="190" x2="58" y2="190" stroke="#2AACA0" stroke-width="2" opacity="0.4"/>'
-            '<line x1="8" y1="235" x2="58" y2="235" stroke="#2AACA0" stroke-width="2" opacity="0.4"/>'
-            '<line x1="8" y1="280" x2="58" y2="280" stroke="#2AACA0" stroke-width="2" opacity="0.4"/>'
-            '<line x1="8" y1="325" x2="58" y2="325" stroke="#2AACA0" stroke-width="2" opacity="0.4"/>'
-            '<line x1="8" y1="370" x2="58" y2="370" stroke="#2AACA0" stroke-width="2" opacity="0.4"/>'
-            '<line x1="8" y1="428" x2="58" y2="428" stroke="#2AACA0" stroke-width="2" opacity="0.4"/>'
-            '<line x1="8" y1="145" x2="13" y2="190" stroke="#2AACA0" stroke-width="1.5" opacity="0.35"/>'
-            '<line x1="13" y1="145" x2="8" y2="190" stroke="#2AACA0" stroke-width="1.5" opacity="0.35"/>'
-            '<line x1="8" y1="235" x2="13" y2="280" stroke="#2AACA0" stroke-width="1.5" opacity="0.35"/>'
-            '<line x1="13" y1="235" x2="8" y2="280" stroke="#2AACA0" stroke-width="1.5" opacity="0.35"/>'
-            '<line x1="8" y1="325" x2="13" y2="370" stroke="#2AACA0" stroke-width="1.5" opacity="0.35"/>'
-            '<line x1="13" y1="325" x2="8" y2="370" stroke="#2AACA0" stroke-width="1.5" opacity="0.35"/>'
-            # Colunas do prédio
-            '<rect x="58" y="145" width="10" height="283" fill="#1B3A5E"/>'
-            '<rect x="120" y="145" width="7" height="283" fill="#1B3A5E" opacity="0.8"/>'
-            '<rect x="184" y="145" width="7" height="283" fill="#1B3A5E" opacity="0.8"/>'
-            '<rect x="242" y="145" width="10" height="283" fill="#1B3A5E"/>'
-            # Lajes horizontais (7 pisos)
-            '<rect x="58" y="145" width="194" height="8" fill="#1B3A5E"/>'
-            '<rect x="58" y="190" width="194" height="6" fill="#1B3A5E"/>'
-            '<rect x="58" y="235" width="194" height="6" fill="#1B3A5E"/>'
-            '<rect x="58" y="280" width="194" height="6" fill="#1B3A5E"/>'
-            '<rect x="58" y="325" width="194" height="6" fill="#1B3A5E"/>'
-            '<rect x="58" y="370" width="194" height="6" fill="#1B3A5E"/>'
-            '<rect x="58" y="422" width="194" height="6" fill="#1B3A5E"/>'
-            # Janelas — 6 andares x 3 vãos (teal outline)
-            '<rect x="73" y="157" width="41" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="130" y="157" width="48" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="196" y="157" width="40" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="73" y="200" width="41" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="130" y="200" width="48" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="196" y="200" width="40" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="73" y="245" width="41" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="130" y="245" width="48" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="196" y="245" width="40" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="73" y="290" width="41" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="130" y="290" width="48" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="196" y="290" width="40" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="73" y="335" width="41" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="130" y="335" width="48" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="196" y="335" width="40" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="73" y="380" width="41" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="130" y="380" width="48" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            '<rect x="196" y="380" width="40" height="25" rx="2" stroke="#2AACA0" stroke-width="2.5" fill="none"/>'
-            # Guindaste — mastro colado ao lado direito do prédio
-            '<rect x="255" y="422" width="20" height="6" rx="1" fill="#1B3A5E" opacity="0.35"/>'
-            '<rect x="260" y="18" width="10" height="410" rx="2" fill="#2AACA0"/>'
-            # Treliça do mastro
-            '<line x1="260" y1="70" x2="270" y2="90" stroke="#EDE8DF" stroke-width="1.5" opacity="0.4"/>'
-            '<line x1="270" y1="70" x2="260" y2="90" stroke="#EDE8DF" stroke-width="1.5" opacity="0.4"/>'
-            '<line x1="260" y1="140" x2="270" y2="160" stroke="#EDE8DF" stroke-width="1.5" opacity="0.4"/>'
-            '<line x1="270" y1="140" x2="260" y2="160" stroke="#EDE8DF" stroke-width="1.5" opacity="0.4"/>'
-            '<line x1="260" y1="210" x2="270" y2="230" stroke="#EDE8DF" stroke-width="1.5" opacity="0.4"/>'
-            '<line x1="270" y1="210" x2="260" y2="230" stroke="#EDE8DF" stroke-width="1.5" opacity="0.4"/>'
-            '<line x1="260" y1="280" x2="270" y2="300" stroke="#EDE8DF" stroke-width="1.5" opacity="0.4"/>'
-            '<line x1="270" y1="280" x2="260" y2="300" stroke="#EDE8DF" stroke-width="1.5" opacity="0.4"/>'
-            # Topo triangular do guindaste
-            '<polygon points="253,18 265,4 277,18" fill="#2AACA0"/>'
-            # Lança principal → ESQUERDA (sobre o prédio) — braço de trabalho
-            '<rect x="65" y="12" width="195" height="7" rx="2" fill="#2AACA0"/>'
-            # Contra-lança → DIREITA — braço de contrapeso (mais curto)
-            '<rect x="270" y="12" width="62" height="6" rx="2" fill="#2AACA0"/>'
-            # Contrapeso (direita, na ponta da contra-lança)
-            '<rect x="325" y="18" width="22" height="18" rx="3" fill="#1B3A5E" opacity="0.5"/>'
-            # Tirantes de sustentação (do pico ao tip de cada lança)
-            '<line x1="265" y1="4" x2="65" y2="19" stroke="#2AACA0" stroke-width="1.5" opacity="0.5"/>'
-            '<line x1="265" y1="4" x2="329" y2="18" stroke="#2AACA0" stroke-width="1.5" opacity="0.5"/>'
-            # Trolley + cabo do gancho (sobre o centro do prédio)
-            '<rect x="148" y="10" width="10" height="9" rx="1" fill="#1B3A5E" opacity="0.45"/>'
-            '<line x1="153" y1="19" x2="153" y2="185" stroke="#2AACA0" stroke-width="2"/>'
-            # Bloco e gancho
-            '<rect x="146" y="185" width="14" height="10" rx="2" fill="#2AACA0"/>'
-            '<line x1="153" y1="195" x2="153" y2="206" stroke="#2AACA0" stroke-width="2"/>'
-            '<path d="M145,206 Q153,218 161,206" stroke="#2AACA0" stroke-width="2" stroke-linecap="round"/>'
-            '</svg></div>'
-        )
-        st.markdown(_svg, unsafe_allow_html=True)
+        import os as _os
+        _img_path = _os.path.join(_os.path.dirname(__file__), "static", "building.png")
+        st.image(_img_path, use_container_width=True)
 
 
 def _role() -> str:
