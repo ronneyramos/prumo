@@ -1,0 +1,28 @@
+PROMPT 05 — DASHBOARD RH / PESSOAS
+
+Use a planilha anexa e analise a aba Base_RH.
+
+Crie um dashboard de RH/Pessoas em HTML único, com visual clean e minimalista:
+- fundo branco;
+- bastante espaço em branco;
+- tipografia grande;
+- acentos em azul-petróleo;
+- vibe corporativo humano e elegante.
+
+O dashboard deve mostrar:
+1. Headcount.
+2. Turnover.
+3. Custo de contratação.
+4. Absenteísmo por área.
+5. Admissões e desligamentos.
+6. Tempo médio de contratação.
+7. Áreas com maior atenção.
+
+Objetivo:
+Transformar RH em área estratégica usando números que a diretoria respeita.
+
+Regras:
+- Não invente dados.
+- Mostre tendências e áreas críticas.
+- Use visual limpo e executivo.
+- Entregue o código completo em um único HTML.

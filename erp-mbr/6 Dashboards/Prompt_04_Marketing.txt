@@ -1,0 +1,28 @@
+PROMPT 04 — DASHBOARD DE MARKETING
+
+Use a planilha anexa e analise a aba Base_Marketing.
+
+Crie um dashboard de marketing em HTML único, com visual colorido e vibrante:
+- fundo claro;
+- gradientes suaves em roxo, rosa e laranja;
+- vibe criativa/agência;
+- donut charts e barras coloridas;
+- visual energético.
+
+O dashboard deve mostrar:
+1. Investimento por canal.
+2. CAC por campanha.
+3. ROI por campanha.
+4. Conversão por canal.
+5. Funil: impressões, cliques, leads e conversões.
+6. Canais lado a lado.
+7. Campanhas que mais retornam verba.
+
+Objetivo:
+Provar visualmente que a verba de marketing volta.
+
+Regras:
+- Não invente dados.
+- Destaque ROI e CAC.
+- Mostre canais que merecem mais investimento.
+- Entregue o código completo em um único HTML.

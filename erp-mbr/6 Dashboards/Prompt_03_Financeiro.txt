@@ -1,0 +1,28 @@
+PROMPT 03 — DASHBOARD FINANCEIRO
+
+Use a planilha anexa e analise a aba Base_Financeiro.
+
+Crie um dashboard financeiro em HTML único, com visual dark e acentos verde neon:
+- vibe financeira/trading;
+- fundo escuro;
+- gráficos de linha em destaque;
+- números grandes;
+- sensação de painel de mercado/Bloomberg.
+
+O dashboard deve mostrar:
+1. Receita total.
+2. Despesas totais.
+3. Lucro.
+4. Fluxo de caixa.
+5. Receita vs despesa por mês.
+6. Alertas visuais para indicadores abaixo da meta.
+7. Categorias que mais impactam o resultado.
+
+Objetivo:
+Dar uma visão rápida da saúde da empresa para decidir se investe ou segura.
+
+Regras:
+- Não invente dados.
+- Trate despesas como valores negativos.
+- Destaque alertas em vermelho/âmbar.
+- Entregue o código completo em um único HTML.

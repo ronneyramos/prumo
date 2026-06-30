@@ -1,0 +1,264 @@
+Análise crítica do MBR ERP v8 (Streamlit) e plano de migração
+
+1. Diagnóstico do que existe hoje
+
+O que funciona bem:
+
+
+
+
+
+Cobertura funcional ampla: Dashboard, Obras, Suprimentos (estoque, movimentações, requisições), Financeiro (CP/CR), Pessoal (funcionários, ponto, folha), Qualidade (checklists, NCs), Orçamento (import xlsx/csv) e EAP (Gantt).
+
+
+
+UX coerente: filtros, métricas, badges de status, gráficos Plotly, formatação BRL.
+
+
+
+Folha calcula INSS/FGTS, estoque atualiza no registro de movimentação, alertas financeiros por vencimento.
+
+Problemas críticos (bloqueadores para uso real):
+
+
+
+
+
+Sem persistência: tudo vive em st.session_state. Recarregou a página = perdeu tudo. O rodapé diz "SQLite" mas não há banco nenhum.
+
+
+
+Monousuário, sem login: qualquer pessoa com o link vê e edita tudo. Sem trilha de auditoria (quem alterou o quê e quando).
+
+
+
+Sem multi-empresa / multi-obra real: não há isolamento de dados, papéis (admin, engenheiro, almoxarife, financeiro) nem permissões.
+
+
+
+Datas como string dd/mm/yyyy: impossível ordenar, filtrar por período, calcular atraso de cronograma de forma confiável.
+
+
+
+Integridade de dados frágil: "Obra" e "Insumo" são texto livre repetido em várias tabelas — renomear uma obra quebra histórico. Faltam FKs.
+
+
+
+Regras de negócio incompletas:
+
+
+
+
+
+Requisição aprovada não baixa estoque automaticamente.
+
+
+
+Não existe vínculo Medição → Contas a Receber, nem NF → Contas a Pagar.
+
+
+
+Folha não considera horas extras do ponto, faltas, adicionais, 13º, férias.
+
+
+
+EAP é hardcoded — não está ligado às obras cadastradas.
+
+
+
+Orçamento importado não vira baseline para comparar Orçado × Realizado (que é o KPI mais importante de uma construtora).
+
+
+
+Sem anexos: NFs, fotos de inspeção, ART, contratos, holerites — nada pode ser anexado.
+
+
+
+Sem relatórios exportáveis (PDF de medição, boletim diário de obra, recibo de pagamento).
+
+
+
+Arquivo único monolítico (~900 linhas) — difícil manter e evoluir.
+
+
+
+Código tem st.rerun() em quase toda ação — pesado e perde estado de filtros.
+
+2. Próximos passos — Roadmap proposto
+
+Fase 0 — Fundação (1ª entrega)
+
+
+
+
+
+Ativar Lovable Cloud (Postgres + Auth + Storage).
+
+
+
+Stack: TanStack Start + React + Tailwind + shadcn/ui + Recharts/Plotly.
+
+
+
+Autenticação email/senha + Google, com papéis: admin, engenheiro, financeiro, almoxarife, rh, visualizador (tabela user_roles separada + RLS).
+
+
+
+Modelagem inicial do banco com FKs e datas tipadas:
+
+
+
+
+
+obras, clientes, fornecedores, funcionarios
+
+
+
+insumos, estoque_obra, movimentacoes, requisicoes, requisicao_itens
+
+
+
+contas_pagar, contas_receber, medicoes
+
+
+
+ponto, folha_mensal
+
+
+
+checklists, nao_conformidades
+
+
+
+orcamento, orcamento_itens, eap_tarefas
+
+
+
+anexos (Storage) + audit_log
+
+Fase 1 — Paridade com o Streamlit (entrega rápida)
+
+
+
+
+
+Migrar páginas: Dashboard, Obras, Suprimentos, Financeiro, Pessoal, Qualidade, Orçamento, EAP.
+
+
+
+CRUD real com validação (Zod), tabelas com filtro/sort/paginação, datas com date picker.
+
+
+
+Importação de planilha de orçamento (xlsx/csv) gravando no banco como baseline da obra.
+
+
+
+EAP por obra (não mais hardcoded), com Gantt editável.
+
+Fase 2 — Regras de negócio que faltam
+
+
+
+
+
+Requisição → aprovação → baixa automática de estoque.
+
+
+
+Medição da obra → gera Conta a Receber e atualiza % físico.
+
+
+
+NF de entrada → gera Conta a Pagar e movimenta estoque.
+
+
+
+Ponto eletrônico → alimenta folha (HE, faltas, DSR).
+
+
+
+Orçado × Realizado por etapa da EAP (curva S).
+
+
+
+Alertas: estoque mínimo, NC em atraso, conta vencendo em 7 dias, obra atrasada vs cronograma.
+
+Fase 3 — Diferenciais
+
+
+
+
+
+Upload de NF/fotos/ART (Storage).
+
+
+
+Relatórios PDF: Boletim Diário de Obra (RDO), Medição, Recibo, Folha.
+
+
+
+Dashboard executivo com curva S, fluxo de caixa projetado, margem por obra.
+
+
+
+App mobile-friendly para mestre de obras lançar ponto, RDO e fotos no canteiro.
+
+
+
+IA (Lovable AI): resumo automático de RDO, classificação de NC, leitura de NF (OCR) para preencher Contas a Pagar.
+
+3. Detalhes técnicos (para referência)
+
+
+
+
+
+Backend: server functions TanStack (createServerFn + requireSupabaseAuth) — sem Edge Functions para lógica interna.
+
+
+
+Banco: Postgres do Lovable Cloud, com RLS por auth.uid() e has_role(). Toda tabela com GRANT apropriado.
+
+
+
+Roles: tabela user_roles separada (nunca em profiles), função has_role security definer.
+
+
+
+Auditoria: tabela audit_log populada por trigger (quem, quando, tabela, antes/depois).
+
+
+
+Validação: Zod no input das server functions + constraints no banco.
+
+
+
+Datas: timestamptz no banco, formatação BR só na UI.
+
+
+
+Storage: bucket privado por obra para anexos.
+
+4. Sugestão de primeira sprint (o que eu construo na próxima etapa)
+
+
+
+
+
+Melhorias Erp
+Ativar Lovable Cloud.
+
+
+
+Criar schema completo + RLS + roles + seed com os dados atuais do Streamlit.
+
+
+
+Auth (login/registro/recuperar senha) + tela de gestão de usuários e papéis.
+
+
+
+Módulo Obras completo (CRUD + listagem + dashboard básico) como referência arquitetural para os outros módulos.
+
+A partir daí seguimos módulo a módulo (Suprimentos → Financeiro → Pessoal → Qualidade → Orçamento → EAP), cada um aproveitando o padrão da Fase 0.

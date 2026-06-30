@@ -1,0 +1,28 @@
+PROMPT 06 — DASHBOARD DE METAS
+
+Use a planilha anexa e analise a aba Base_Metas.
+
+Crie um dashboard de metas em HTML único, com visual dark gamificado:
+- fundo escuro;
+- gauges e medidores circulares;
+- barras de progresso;
+- acentos em ciano e amarelo;
+- vibe energética de painel de performance.
+
+O dashboard deve mostrar:
+1. % de atingimento por área.
+2. Progresso geral.
+3. Projeção de fechamento do trimestre.
+4. Quanto falta para bater a meta.
+5. Ranking de áreas.
+6. Status: acima da meta, no caminho ou atenção.
+7. Alertas visuais para áreas em risco.
+
+Objetivo:
+Acompanhar metas de forma visual para acordar o time e mostrar quanto falta.
+
+Regras:
+- Não invente dados.
+- Destaque gaps e projeções.
+- Use visual gamificado e de performance.
+- Entregue o código completo em um único HTML.

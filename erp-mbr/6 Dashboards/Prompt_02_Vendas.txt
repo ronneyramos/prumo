@@ -1,0 +1,27 @@
+PROMPT 02 — DASHBOARD DE VENDAS
+
+Use a planilha anexa e analise a aba Base_Vendas.
+
+Crie um dashboard de vendas em HTML único, com visual de site moderno/SaaS:
+- fundo claro branco/cinza;
+- acentos em azul e verde;
+- cards com sombra suave;
+- layout limpo de produto tech.
+
+O dashboard deve mostrar:
+1. Receita total.
+2. Ranking de vendedores.
+3. Meta vs realizado.
+4. Ticket médio.
+5. Produtos campeões.
+6. Status visual: verde para bateu meta, vermelho para não bateu.
+7. Evolução mensal de vendas.
+
+Objetivo:
+Transformar o comercial inteiro em competição visual, fácil de acompanhar.
+
+Regras:
+- Não invente dados.
+- Use a base enviada.
+- Organize o layout para cobrança de meta.
+- Entregue o código completo em um único HTML.

@@ -1,0 +1,28 @@
+PROMPT 01 — DASHBOARD EXECUTIVO
+
+Use a planilha anexa e analise a aba Base_Executivo.
+
+Crie um dashboard executivo em HTML único, com visual dark premium clássico:
+- fundo preto/grafite;
+- dados em laranja e branco;
+- layout em grid;
+- KPIs grandes no topo;
+- visual corporativo sofisticado.
+
+O dashboard deve mostrar:
+1. Faturamento total.
+2. Lucro total.
+3. Margem média.
+4. % de meta atingida.
+5. Variação por mês.
+6. Ranking de áreas/produtos.
+7. 3 insights escritos com ação recomendada.
+
+Objetivo:
+Criar o painel da reunião de diretoria, resumindo a empresa inteira em 10 segundos.
+
+Regras:
+- Não invente dados.
+- Use os campos da planilha.
+- Destaque o que cresceu, o que preocupa e qual ação tomar.
+- Entregue o código completo em um único HTML.

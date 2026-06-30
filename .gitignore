@@ -1,0 +1,26 @@
+# Credenciais — NUNCA subir para o GitHub
+streamlit/.env
+.env
+
+# Ferramentas de desenvolvimento (não necessário no deploy)
+streamlit/.agents/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDEs
+.vscode/
+.idea/
+
+# Sistema
+.DS_Store
+Thumbs.db
