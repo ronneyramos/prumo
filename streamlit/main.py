@@ -197,8 +197,42 @@ def _export_excel(df: pd.DataFrame, nome_arquivo: str = "dados.xlsx") -> bytes:
 
 def _auth_login():
     """Tela de login/cadastro. Exibida quando não há usuário autenticado."""
-    st.title("🏗️ Prumo")
-    st.caption("Sistema de gestão para construtoras e incorporadoras")
+    st.markdown("""<style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
+        section[data-testid="stSidebar"] { display: none !important; }
+        #MainMenu, footer, header { visibility: hidden; }
+        .stApp { background: linear-gradient(135deg, #EFF6FF 0%, #F1F5F9 60%, #F8FAFC 100%); }
+        .main .block-container { max-width: 460px !important; padding-top: 6vh !important; }
+        button[kind="primary"] {
+            background: linear-gradient(135deg, #2563EB, #1D4ED8) !important;
+            border: none !important; border-radius: 8px !important;
+            font-weight: 600 !important; font-size: 15px !important;
+            box-shadow: 0 2px 6px rgba(37,99,235,0.3) !important;
+        }
+        [data-testid="stTextInput"] input {
+            border-radius: 8px !important; border-color: #CBD5E1 !important;
+            font-size: 14px !important; padding: 10px 14px !important;
+        }
+        [data-testid="stTabs"] button[role="tab"] { font-size: 14px !important; font-weight: 500 !important; }
+        [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+            color: #2563EB !important; border-bottom: 3px solid #2563EB !important; font-weight: 700 !important;
+        }
+    </style>""", unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="text-align:center; padding: 2rem 0 1.5rem 0;">
+        <div style="display:inline-flex;align-items:center;justify-content:center;
+                    width:60px;height:60px;background:linear-gradient(135deg,#2563EB,#1D4ED8);
+                    border-radius:14px;font-size:28px;margin-bottom:16px;
+                    box-shadow:0 4px 14px rgba(37,99,235,0.35);">🏗️</div>
+        <h1 style="color:#0F172A;font-size:2rem;font-weight:800;margin:0;letter-spacing:-0.5px;">Prumo</h1>
+        <p style="color:#64748B;margin:6px 0 0 0;font-size:14px;">
+            Sistema de gestão para construtoras e incorporadoras
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
     aba_login, aba_cadastro = st.tabs(["🔑 Entrar", "🏢 Criar conta"])
 
     with aba_login:
@@ -3083,84 +3117,178 @@ def pagina_eap():
 
 def _apply_css():
     st.markdown("""<style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+        /* ── Global ── */
+        html, body, [class*="css"], [class*="st-"] {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        }
+        .stApp { background-color: #F1F5F9; }
+        .main .block-container {
+            padding-top: 1.8rem !important;
+            padding-bottom: 2rem !important;
+            max-width: 1400px !important;
+        }
+        #MainMenu { visibility: hidden; }
+        footer { visibility: hidden; }
+        header { visibility: hidden; }
+
+        /* ── Títulos ── */
+        h1 {
+            color: #0F172A !important;
+            font-weight: 800 !important;
+            font-size: 1.65rem !important;
+            letter-spacing: -0.4px;
+            margin-bottom: 1.2rem !important;
+        }
+        h2, h3 { color: #1E293B !important; font-weight: 700 !important; }
+
         /* ── Métricas ── */
         [data-testid="stMetric"] {
-            background: #F8F9FE;
-            border: 1px solid #DEE2F7;
-            border-radius: 10px;
-            padding: 12px 16px !important;
-            box-shadow: 0 1px 4px rgba(43,89,195,0.08);
+            background: #FFFFFF;
+            border: none;
+            border-radius: 12px;
+            padding: 20px !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
+            border-left: 4px solid #2563EB;
+            transition: box-shadow 0.2s, transform 0.2s;
+        }
+        [data-testid="stMetric"]:hover {
+            box-shadow: 0 4px 14px rgba(37,99,235,0.13);
+            transform: translateY(-1px);
         }
         [data-testid="stMetric"] label {
-            color: #6C757D !important;
+            color: #64748B !important;
             font-size: 11px !important;
             font-weight: 600 !important;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.8px;
         }
         [data-testid="stMetricValue"] {
-            color: #2B59C3 !important;
-            font-size: 1.55rem !important;
+            color: #0F172A !important;
+            font-size: 1.6rem !important;
             font-weight: 700 !important;
         }
+        [data-testid="stMetricDelta"] { font-size: 12px !important; font-weight: 600 !important; }
+
         /* ── Botões primários ── */
         button[kind="primary"] {
-            background-color: #2B59C3 !important;
-            border-color: #2B59C3 !important;
+            background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
+            border: none !important;
             color: #FFFFFF !important;
             font-weight: 600 !important;
-            border-radius: 6px !important;
-            transition: background 0.2s;
+            border-radius: 8px !important;
+            font-size: 14px !important;
+            box-shadow: 0 2px 4px rgba(37,99,235,0.25) !important;
+            transition: all 0.2s !important;
         }
         button[kind="primary"]:hover {
-            background-color: #1E3D8F !important;
-            border-color: #1E3D8F !important;
+            background: linear-gradient(135deg, #1D4ED8 0%, #1E40AF 100%) !important;
+            box-shadow: 0 4px 10px rgba(37,99,235,0.35) !important;
+            transform: translateY(-1px) !important;
         }
+
+        /* ── Botões secundários ── */
+        button[kind="secondary"] {
+            border-radius: 8px !important;
+            font-weight: 500 !important;
+            font-size: 14px !important;
+            border-color: #CBD5E1 !important;
+            color: #475569 !important;
+        }
+        button[kind="secondary"]:hover {
+            border-color: #2563EB !important;
+            color: #2563EB !important;
+            background: #EFF6FF !important;
+        }
+
         /* ── Abas ── */
         [data-testid="stTabs"] button[role="tab"] {
             font-weight: 500;
-            border-radius: 4px 4px 0 0;
+            font-size: 14px;
+            color: #64748B !important;
+            padding: 10px 16px !important;
+            border-radius: 0 !important;
         }
         [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            color: #2B59C3 !important;
-            border-bottom: 3px solid #2B59C3 !important;
+            color: #2563EB !important;
+            border-bottom: 3px solid #2563EB !important;
             font-weight: 700 !important;
+            background: transparent !important;
         }
+
         /* ── Alertas ── */
         [data-testid="stAlert"] {
-            border-radius: 8px !important;
+            border-radius: 10px !important;
+            font-size: 14px !important;
         }
-        /* ── Cabeçalho de tabelas ── */
+
+        /* ── Tabelas ── */
         [data-testid="stDataFrameResizable"] th {
-            background-color: #EFF3FB !important;
-            color: #2B59C3 !important;
+            background-color: #F8FAFC !important;
+            color: #374151 !important;
             font-weight: 700 !important;
+            font-size: 12px !important;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #E2E8F0 !important;
         }
+        [data-testid="stDataFrameResizable"] tr:hover td {
+            background-color: #EFF6FF !important;
+        }
+
+        /* ── Expanders ── */
+        [data-testid="stExpander"] {
+            border: 1px solid #E2E8F0 !important;
+            border-radius: 10px !important;
+            background: #FFFFFF;
+        }
+
+        /* ── Inputs ── */
+        [data-testid="stTextInput"] input,
+        [data-testid="stNumberInput"] input {
+            border-radius: 8px !important;
+            border-color: #CBD5E1 !important;
+            font-size: 14px !important;
+        }
+        [data-testid="stTextInput"] input:focus,
+        [data-testid="stNumberInput"] input:focus {
+            border-color: #2563EB !important;
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+        }
+
         /* ── Sidebar ── */
         section[data-testid="stSidebar"] > div:first-child {
-            background-color: #1A1A2E;
+            background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%) !important;
         }
         section[data-testid="stSidebar"] button[kind="secondary"] {
-            background-color: rgba(255,255,255,0.05) !important;
-            border: 1px solid rgba(255,255,255,0.15) !important;
-            color: #FFFFFF !important;
-            border-radius: 6px !important;
+            background-color: rgba(255,255,255,0.04) !important;
+            border: 1px solid rgba(255,255,255,0.08) !important;
+            color: #94A3B8 !important;
+            border-radius: 8px !important;
+            font-size: 14px !important;
+            font-weight: 500 !important;
+            transition: all 0.2s !important;
         }
         section[data-testid="stSidebar"] button[kind="secondary"]:hover {
-            background-color: rgba(43,89,195,0.35) !important;
-            border-color: #2B59C3 !important;
-        }
-        section[data-testid="stSidebar"] button[kind="primary"] {
-            background-color: #2B59C3 !important;
-            border-color: #2B59C3 !important;
+            background-color: rgba(37,99,235,0.18) !important;
+            border-color: rgba(37,99,235,0.4) !important;
             color: #FFFFFF !important;
         }
+        section[data-testid="stSidebar"] button[kind="primary"] {
+            background: linear-gradient(135deg, #2563EB, #1D4ED8) !important;
+            border: none !important;
+            color: #FFFFFF !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+        }
         section[data-testid="stSidebar"] .stMarkdown p,
-        section[data-testid="stSidebar"] .stMarkdown h3,
         section[data-testid="stSidebar"] .stMarkdown span,
         section[data-testid="stSidebar"] caption {
-            color: #CCCCDD !important;
+            color: #94A3B8 !important;
+            font-size: 12px !important;
         }
+        hr { border-color: #E2E8F0 !important; }
     </style>""", unsafe_allow_html=True)
 
 
@@ -3184,21 +3312,32 @@ def app():
         </style>""",
         unsafe_allow_html=True,
     )
-    st.sidebar.markdown(
-        "<div style='text-align:center;padding:15px 0;border-bottom:2px solid #2B59C3;'>"
-        "<h3 style='color:#2B59C3;font-weight:700;margin:0;'>Prumo</h3>"
-        "<p style='color:#6C757D;font-size:13px;margin:5px 0 0 0;'>ERP v1.0 • Supabase</p></div>",
-        unsafe_allow_html=True,
-    )
-
-    # ── Usuário logado ────────────────────────────────────────────────────────
     _usr = st.session_state.get("usuario", {})
     st.sidebar.markdown(
-        f"<p style='margin:8px 0 0 0;font-size:13px;'>👤 <b>{_usr.get('nome','Usuário')}</b><br>"
-        f"<span style='color:#6C757D;font-size:11px;'>Perfil: {_role()}</span></p>",
+        f"""<div style='padding:20px 12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;'>
+            <div style='display:flex;align-items:center;gap:10px;margin-bottom:14px;'>
+                <div style='width:36px;height:36px;background:linear-gradient(135deg,#2563EB,#1D4ED8);
+                            border-radius:9px;display:flex;align-items:center;justify-content:center;
+                            font-size:18px;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,0.4);'>🏗️</div>
+                <div>
+                    <div style='color:#F8FAFC;font-size:17px;font-weight:800;letter-spacing:-0.3px;line-height:1;'>Prumo</div>
+                    <div style='color:#475569;font-size:10px;font-weight:500;margin-top:3px;'>ERP de Construção</div>
+                </div>
+            </div>
+            <div style='display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.05);
+                        border-radius:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.07);'>
+                <div style='width:28px;height:28px;background:linear-gradient(135deg,#334155,#475569);
+                            border-radius:50%;display:flex;align-items:center;justify-content:center;
+                            font-size:13px;'>👤</div>
+                <div>
+                    <div style='color:#E2E8F0;font-size:13px;font-weight:600;line-height:1;'>{_usr.get('nome','Usuário')}</div>
+                    <div style='color:#64748B;font-size:11px;margin-top:2px;'>{_role().capitalize()}</div>
+                </div>
+            </div>
+        </div>""",
         unsafe_allow_html=True,
     )
-    st.sidebar.markdown("---")
+    st.sidebar.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
     # ── Menu filtrado por role ────────────────────────────────────────────────
     _MENU = {
