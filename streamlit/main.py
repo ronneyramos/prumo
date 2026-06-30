@@ -202,33 +202,42 @@ def _auth_login():
         html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
         section[data-testid="stSidebar"] { display: none !important; }
         #MainMenu, footer, header { visibility: hidden; }
-        .stApp { background: linear-gradient(135deg, #EFF6FF 0%, #F1F5F9 60%, #F8FAFC 100%); }
-        .main .block-container { max-width: 460px !important; padding-top: 6vh !important; }
+        .stApp { background: #F0F2F5; }
+        .main .block-container { max-width: 460px !important; padding-top: 5vh !important; }
         button[kind="primary"] {
-            background: linear-gradient(135deg, #2563EB, #1D4ED8) !important;
-            border: none !important; border-radius: 8px !important;
-            font-weight: 600 !important; font-size: 15px !important;
-            box-shadow: 0 2px 6px rgba(37,99,235,0.3) !important;
+            background: #06B6D4 !important;
+            border: none !important; border-radius: 50px !important;
+            font-weight: 700 !important; font-size: 13px !important;
+            letter-spacing: 0.5px; text-transform: uppercase;
+            box-shadow: 0 3px 10px rgba(6,182,212,0.35) !important;
         }
+        button[kind="primary"]:hover { background: #0891B2 !important; }
         [data-testid="stTextInput"] input {
-            border-radius: 8px !important; border-color: #CBD5E1 !important;
-            font-size: 14px !important; padding: 10px 14px !important;
+            border-radius: 6px !important; border-color: #CBD5E1 !important;
+            font-size: 14px !important;
         }
-        [data-testid="stTabs"] button[role="tab"] { font-size: 14px !important; font-weight: 500 !important; }
+        [data-testid="stTextInput"] input:focus {
+            border-color: #06B6D4 !important;
+            box-shadow: 0 0 0 3px rgba(6,182,212,0.12) !important;
+        }
+        [data-testid="stTabs"] button[role="tab"] {
+            font-size: 13px !important; font-weight: 600 !important;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
         [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            color: #2563EB !important; border-bottom: 3px solid #2563EB !important; font-weight: 700 !important;
+            color: #06B6D4 !important; border-bottom: 3px solid #06B6D4 !important; font-weight: 700 !important;
         }
     </style>""", unsafe_allow_html=True)
 
     st.markdown("""
     <div style="text-align:center; padding: 2rem 0 1.5rem 0;">
         <div style="display:inline-flex;align-items:center;justify-content:center;
-                    width:60px;height:60px;background:linear-gradient(135deg,#2563EB,#1D4ED8);
-                    border-radius:14px;font-size:28px;margin-bottom:16px;
-                    box-shadow:0 4px 14px rgba(37,99,235,0.35);">🏗️</div>
-        <h1 style="color:#0F172A;font-size:2rem;font-weight:800;margin:0;letter-spacing:-0.5px;">Prumo</h1>
-        <p style="color:#64748B;margin:6px 0 0 0;font-size:14px;">
-            Sistema de gestão para construtoras e incorporadoras
+                    width:64px;height:64px;background:#06B6D4;
+                    border-radius:12px;font-size:30px;margin-bottom:16px;
+                    box-shadow:0 4px 16px rgba(6,182,212,0.4);">🏗️</div>
+        <h1 style="color:#0A1628;font-size:2rem;font-weight:800;margin:0;letter-spacing:-0.5px;">Prumo</h1>
+        <p style="color:#64748B;margin:6px 0 0 0;font-size:13px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">
+            Sistema de Gestão para Construtoras
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -3123,7 +3132,7 @@ def _apply_css():
         html, body, [class*="css"], [class*="st-"] {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
         }
-        .stApp { background-color: #F1F5F9; }
+        .stApp { background-color: #F0F2F5; }
         .main .block-container {
             padding-top: 1.8rem !important;
             padding-bottom: 2rem !important;
@@ -3135,160 +3144,166 @@ def _apply_css():
 
         /* ── Títulos ── */
         h1 {
-            color: #0F172A !important;
+            color: #0A1628 !important;
             font-weight: 800 !important;
-            font-size: 1.65rem !important;
-            letter-spacing: -0.4px;
+            font-size: 1.55rem !important;
+            letter-spacing: -0.3px;
             margin-bottom: 1.2rem !important;
         }
-        h2, h3 { color: #1E293B !important; font-weight: 700 !important; }
+        h2, h3 { color: #1A2744 !important; font-weight: 700 !important; }
 
-        /* ── Métricas ── */
+        /* ── Métricas — estilo TOTVS Protheus ── */
         [data-testid="stMetric"] {
             background: #FFFFFF;
             border: none;
-            border-radius: 12px;
+            border-radius: 8px;
             padding: 20px !important;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
-            border-left: 4px solid #2563EB;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+            border-top: 3px solid #06B6D4;
             transition: box-shadow 0.2s, transform 0.2s;
         }
         [data-testid="stMetric"]:hover {
-            box-shadow: 0 4px 14px rgba(37,99,235,0.13);
-            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(6,182,212,0.15);
+            transform: translateY(-2px);
         }
         [data-testid="stMetric"] label {
             color: #64748B !important;
-            font-size: 11px !important;
-            font-weight: 600 !important;
+            font-size: 10px !important;
+            font-weight: 700 !important;
             text-transform: uppercase;
-            letter-spacing: 0.8px;
+            letter-spacing: 1px;
         }
         [data-testid="stMetricValue"] {
-            color: #0F172A !important;
-            font-size: 1.6rem !important;
-            font-weight: 700 !important;
+            color: #06B6D4 !important;
+            font-size: 1.7rem !important;
+            font-weight: 800 !important;
         }
         [data-testid="stMetricDelta"] { font-size: 12px !important; font-weight: 600 !important; }
 
-        /* ── Botões primários ── */
+        /* ── Botões primários — pílula estilo TOTVS ── */
         button[kind="primary"] {
-            background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
+            background: #06B6D4 !important;
             border: none !important;
             color: #FFFFFF !important;
-            font-weight: 600 !important;
-            border-radius: 8px !important;
-            font-size: 14px !important;
-            box-shadow: 0 2px 4px rgba(37,99,235,0.25) !important;
+            font-weight: 700 !important;
+            border-radius: 50px !important;
+            font-size: 13px !important;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            box-shadow: 0 2px 8px rgba(6,182,212,0.35) !important;
             transition: all 0.2s !important;
         }
         button[kind="primary"]:hover {
-            background: linear-gradient(135deg, #1D4ED8 0%, #1E40AF 100%) !important;
-            box-shadow: 0 4px 10px rgba(37,99,235,0.35) !important;
+            background: #0891B2 !important;
+            box-shadow: 0 4px 14px rgba(6,182,212,0.45) !important;
             transform: translateY(-1px) !important;
         }
 
         /* ── Botões secundários ── */
         button[kind="secondary"] {
-            border-radius: 8px !important;
-            font-weight: 500 !important;
-            font-size: 14px !important;
+            border-radius: 50px !important;
+            font-weight: 600 !important;
+            font-size: 13px !important;
             border-color: #CBD5E1 !important;
             color: #475569 !important;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
         }
         button[kind="secondary"]:hover {
-            border-color: #2563EB !important;
-            color: #2563EB !important;
-            background: #EFF6FF !important;
+            border-color: #06B6D4 !important;
+            color: #06B6D4 !important;
+            background: #ECFEFF !important;
         }
 
         /* ── Abas ── */
         [data-testid="stTabs"] button[role="tab"] {
-            font-weight: 500;
-            font-size: 14px;
+            font-weight: 600;
+            font-size: 13px;
             color: #64748B !important;
-            padding: 10px 16px !important;
+            padding: 10px 18px !important;
             border-radius: 0 !important;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            color: #2563EB !important;
-            border-bottom: 3px solid #2563EB !important;
+            color: #06B6D4 !important;
+            border-bottom: 3px solid #06B6D4 !important;
             font-weight: 700 !important;
             background: transparent !important;
         }
 
         /* ── Alertas ── */
         [data-testid="stAlert"] {
-            border-radius: 10px !important;
+            border-radius: 8px !important;
             font-size: 14px !important;
         }
 
         /* ── Tabelas ── */
         [data-testid="stDataFrameResizable"] th {
-            background-color: #F8FAFC !important;
-            color: #374151 !important;
+            background-color: #F1F5F9 !important;
+            color: #0A1628 !important;
             font-weight: 700 !important;
-            font-size: 12px !important;
+            font-size: 11px !important;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.7px;
             border-bottom: 2px solid #E2E8F0 !important;
         }
         [data-testid="stDataFrameResizable"] tr:hover td {
-            background-color: #EFF6FF !important;
+            background-color: #ECFEFF !important;
         }
 
         /* ── Expanders ── */
         [data-testid="stExpander"] {
             border: 1px solid #E2E8F0 !important;
-            border-radius: 10px !important;
+            border-radius: 8px !important;
             background: #FFFFFF;
         }
 
         /* ── Inputs ── */
         [data-testid="stTextInput"] input,
         [data-testid="stNumberInput"] input {
-            border-radius: 8px !important;
+            border-radius: 6px !important;
             border-color: #CBD5E1 !important;
             font-size: 14px !important;
         }
         [data-testid="stTextInput"] input:focus,
         [data-testid="stNumberInput"] input:focus {
-            border-color: #2563EB !important;
-            box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+            border-color: #06B6D4 !important;
+            box-shadow: 0 0 0 3px rgba(6,182,212,0.12) !important;
         }
 
-        /* ── Sidebar ── */
+        /* ── Sidebar — quase preta estilo Protheus ── */
         section[data-testid="stSidebar"] > div:first-child {
-            background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%) !important;
+            background: #080D1A !important;
         }
         section[data-testid="stSidebar"] button[kind="secondary"] {
-            background-color: rgba(255,255,255,0.04) !important;
-            border: 1px solid rgba(255,255,255,0.08) !important;
+            background-color: rgba(255,255,255,0.03) !important;
+            border: 1px solid rgba(255,255,255,0.07) !important;
             color: #94A3B8 !important;
-            border-radius: 8px !important;
-            font-size: 14px !important;
+            border-radius: 6px !important;
+            font-size: 13px !important;
             font-weight: 500 !important;
             transition: all 0.2s !important;
         }
         section[data-testid="stSidebar"] button[kind="secondary"]:hover {
-            background-color: rgba(37,99,235,0.18) !important;
-            border-color: rgba(37,99,235,0.4) !important;
-            color: #FFFFFF !important;
+            background-color: rgba(6,182,212,0.15) !important;
+            border-color: rgba(6,182,212,0.4) !important;
+            color: #06B6D4 !important;
         }
         section[data-testid="stSidebar"] button[kind="primary"] {
-            background: linear-gradient(135deg, #2563EB, #1D4ED8) !important;
+            background: #06B6D4 !important;
             border: none !important;
             color: #FFFFFF !important;
-            border-radius: 8px !important;
-            font-weight: 600 !important;
+            border-radius: 6px !important;
+            font-weight: 700 !important;
         }
         section[data-testid="stSidebar"] .stMarkdown p,
         section[data-testid="stSidebar"] .stMarkdown span,
         section[data-testid="stSidebar"] caption {
-            color: #94A3B8 !important;
+            color: #64748B !important;
             font-size: 12px !important;
         }
-        hr { border-color: #E2E8F0 !important; }
+        hr { border-color: rgba(255,255,255,0.06) !important; }
     </style>""", unsafe_allow_html=True)
 
 
@@ -3314,24 +3329,24 @@ def app():
     )
     _usr = st.session_state.get("usuario", {})
     st.sidebar.markdown(
-        f"""<div style='padding:20px 12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;'>
+        f"""<div style='padding:18px 12px 14px;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:4px;'>
             <div style='display:flex;align-items:center;gap:10px;margin-bottom:14px;'>
-                <div style='width:36px;height:36px;background:linear-gradient(135deg,#2563EB,#1D4ED8);
-                            border-radius:9px;display:flex;align-items:center;justify-content:center;
-                            font-size:18px;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,0.4);'>🏗️</div>
+                <div style='width:38px;height:38px;background:#06B6D4;
+                            border-radius:8px;display:flex;align-items:center;justify-content:center;
+                            font-size:20px;flex-shrink:0;box-shadow:0 2px 10px rgba(6,182,212,0.5);'>🏗️</div>
                 <div>
-                    <div style='color:#F8FAFC;font-size:17px;font-weight:800;letter-spacing:-0.3px;line-height:1;'>Prumo</div>
-                    <div style='color:#475569;font-size:10px;font-weight:500;margin-top:3px;'>ERP de Construção</div>
+                    <div style='color:#F1F5F9;font-size:18px;font-weight:800;letter-spacing:-0.3px;line-height:1;'>Prumo</div>
+                    <div style='color:#334155;font-size:10px;font-weight:600;margin-top:3px;letter-spacing:0.8px;text-transform:uppercase;'>ERP de Construção</div>
                 </div>
             </div>
-            <div style='display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.05);
-                        border-radius:8px;padding:8px 10px;border:1px solid rgba(255,255,255,0.07);'>
-                <div style='width:28px;height:28px;background:linear-gradient(135deg,#334155,#475569);
+            <div style='display:flex;align-items:center;gap:8px;background:rgba(6,182,212,0.08);
+                        border-radius:6px;padding:8px 10px;border:1px solid rgba(6,182,212,0.15);'>
+                <div style='width:28px;height:28px;background:#0F2A3A;
                             border-radius:50%;display:flex;align-items:center;justify-content:center;
-                            font-size:13px;'>👤</div>
+                            font-size:13px;border:1px solid rgba(6,182,212,0.3);'>👤</div>
                 <div>
                     <div style='color:#E2E8F0;font-size:13px;font-weight:600;line-height:1;'>{_usr.get('nome','Usuário')}</div>
-                    <div style='color:#64748B;font-size:11px;margin-top:2px;'>{_role().capitalize()}</div>
+                    <div style='color:#06B6D4;font-size:10px;margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'>{_role().capitalize()}</div>
                 </div>
             </div>
         </div>""",
