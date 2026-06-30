@@ -196,157 +196,196 @@ def _export_excel(df: pd.DataFrame, nome_arquivo: str = "dados.xlsx") -> bytes:
 # ── Autenticação e controle de acesso ────────────────────────────────────────
 
 def _auth_login():
-    """Tela de login/cadastro. Exibida quando não há usuário autenticado."""
+    """Tela de login/cadastro — layout split estilo mockup Prumo Modelo 3."""
     st.markdown("""<style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
         html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
         section[data-testid="stSidebar"] { display: none !important; }
         #MainMenu, footer, header { visibility: hidden; }
-        .stApp { background: #F0F2F5; }
-        .main .block-container { max-width: 460px !important; padding-top: 5vh !important; }
+        .stApp { background: #EDEAE3; }
+        .main .block-container { max-width: 1100px !important; padding-top: 4vh !important; }
         button[kind="primary"] {
-            background: #2AACA0 !important;
-            border: none !important; border-radius: 8px !important;
-            font-weight: 700 !important; font-size: 14px !important;
-            box-shadow: 0 3px 10px rgba(42,172,160,0.30) !important;
+            background: #F07820 !important; border: none !important;
+            border-radius: 50px !important; font-weight: 800 !important;
+            font-size: 14px !important; letter-spacing: 1.5px; text-transform: uppercase;
+            box-shadow: 0 4px 16px rgba(240,120,32,0.35) !important; transition: all 0.2s !important;
         }
-        button[kind="primary"]:hover { background: #23948A !important; }
+        button[kind="primary"]:hover { background: #D9660E !important; transform: translateY(-1px) !important; }
+        button[kind="secondary"] {
+            border-radius: 50px !important; font-weight: 600 !important; font-size: 13px !important;
+            border-color: #C8C3BB !important; color: #1B3A5E !important;
+        }
+        button[kind="secondary"]:hover { border-color: #2AACA0 !important; color: #2AACA0 !important; }
         [data-testid="stTextInput"] input {
-            border-radius: 6px !important; border-color: #D0D5DC !important;
-            font-size: 14px !important;
+            border-radius: 8px !important; border: 1.5px solid #D0CCC4 !important;
+            font-size: 14px !important; background: #FFFFFF !important;
         }
         [data-testid="stTextInput"] input:focus {
-            border-color: #2AACA0 !important;
-            box-shadow: 0 0 0 3px rgba(42,172,160,0.12) !important;
+            border-color: #2AACA0 !important; box-shadow: 0 0 0 3px rgba(42,172,160,0.12) !important;
         }
-        [data-testid="stTabs"] button[role="tab"] { font-size: 13px !important; font-weight: 600 !important; }
+        [data-testid="stTabs"] button[role="tab"] {
+            font-size: 12px !important; font-weight: 700 !important;
+            text-transform: uppercase; letter-spacing: 0.8px; color: #A0A8B0 !important;
+        }
         [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            color: #1B3A5E !important; border-bottom: 3px solid #2AACA0 !important; font-weight: 700 !important;
+            color: #1B3A5E !important; border-bottom: 3px solid #F07820 !important;
         }
     </style>""", unsafe_allow_html=True)
 
-    st.markdown("""
-    <div style="text-align:center; padding: 2rem 0 1.5rem 0;">
-        <div style="margin-bottom:18px;">
-            <span style="font-size:2.2rem;font-weight:900;color:#1B3A5E;letter-spacing:-1px;">PRUMO</span><span style="font-size:1.1rem;font-weight:700;color:#2AACA0;margin-left:4px;vertical-align:super;">ERP</span>
+    col_form, col_illus = st.columns([1.05, 0.95], gap="large")
+
+    with col_form:
+        # ── Logo ─────────────────────────────────────────────────────────────
+        st.markdown("""
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:2.2rem;margin-top:0.5rem;">
+            <div style="width:46px;height:46px;background:#1B3A5E;border-radius:10px;
+                        display:flex;align-items:center;justify-content:center;font-size:22px;">🏗️</div>
+            <div>
+                <div style="line-height:1;">
+                    <span style="font-size:1.6rem;font-weight:900;color:#1B3A5E;letter-spacing:-0.5px;">PRUMO</span>
+                    <span style="font-size:0.85rem;font-weight:700;color:#2AACA0;margin-left:3px;vertical-align:super;">ERP</span>
+                </div>
+                <div style="font-size:9px;color:#A0A8B0;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:2px;">
+                    Software de Construção Civil
+                </div>
+            </div>
         </div>
-        <p style="color:#A0A8B0;margin:0;font-size:12px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">
-            Software de Construção Civil
-        </p>
-        <div style="width:40px;height:3px;background:#2AACA0;border-radius:2px;margin:14px auto 0;"></div>
-    </div>
-    """, unsafe_allow_html=True)
+        <div style="margin-bottom:1.6rem;">
+            <div style="font-size:1.45rem;font-weight:900;color:#1B3A5E;text-transform:uppercase;letter-spacing:0.3px;line-height:1.2;">
+                Olá, Gestor!
+            </div>
+            <div style="font-size:0.95rem;font-weight:600;color:#1B3A5E;opacity:0.55;text-transform:uppercase;letter-spacing:0.3px;margin-top:4px;">
+                Acesse sua conta de construção
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    aba_login, aba_cadastro = st.tabs(["🔑 Entrar", "🏢 Criar conta"])
+        # ── Tabs ─────────────────────────────────────────────────────────────
+        aba_login, aba_cadastro = st.tabs(["🔑 Entrar", "🏢 Criar conta"])
 
-    with aba_login:
-        with st.form("form_login"):
-            email = st.text_input("E-mail")
-            senha = st.text_input("Senha", type="password")
-            entrar = st.form_submit_button("Entrar", use_container_width=True, type="primary")
-        if entrar:
-            if not email or not senha:
-                st.error("Preencha e-mail e senha.")
-                return
-            try:
-                from db import sb
-                res = sb().auth.sign_in_with_password({"email": email, "password": senha})
-                meta = res.user.user_metadata or {}
-                st.session_state.usuario = {
-                    "id":    res.user.id,
-                    "email": res.user.email,
-                    "nome":  meta.get("full_name") or res.user.email,
-                }
-                # 1º tenta user_roles, 2º tenta user_metadata, fallback admin
-                role = None
-                try:
-                    role_res = sb().table("user_roles").select("role").eq("user_id", res.user.id).execute()
-                    role = role_res.data[0]["role"] if role_res.data else None
-                except Exception:
-                    pass
-                if not role:
-                    role = meta.get("role") or "admin"
-                st.session_state.usuario_role = role
-                # Carrega empresa_id do user_metadata
-                st.session_state.empresa_id = meta.get("empresa_id") or "00000000-0000-0000-0000-000000000001"
-                if role in ("engenheiro", "adm_obra", "suprimentos", "qualidade"):
-                    try:
-                        obras_res = sb().table("usuario_obras").select("obra_id").eq("user_id", res.user.id).execute()
-                        st.session_state.usuario_obras_ids = [r["obra_id"] for r in (obras_res.data or [])]
-                    except Exception:
-                        st.session_state.usuario_obras_ids = []
-                else:
-                    st.session_state.usuario_obras_ids = []
-                st.rerun()
-            except Exception as e:
-                st.error("Login inválido. Verifique e-mail e senha.")
-                print(f"[auth] erro login: {e}")
+        with aba_login:
+            with st.form("form_login"):
+                st.markdown('<p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6B7280;margin:0 0 4px 0;">E-mail da Obra</p>', unsafe_allow_html=True)
+                email = st.text_input("email_login", placeholder="engenheiro@obra.com", label_visibility="collapsed")
+                st.markdown('<p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6B7280;margin:8px 0 4px 0;">Senha</p>', unsafe_allow_html=True)
+                senha  = st.text_input("senha_login", type="password", label_visibility="collapsed")
+                entrar = st.form_submit_button("Entrar", use_container_width=True, type="primary")
+            st.markdown('<p style="text-align:center;font-size:12px;color:#A0A8B0;margin-top:6px;">Esqueceu a senha? Entre em contato com o suporte.</p>', unsafe_allow_html=True)
 
-    with aba_cadastro:
-        st.markdown("**Crie sua conta e comece a usar gratuitamente por 30 dias**")
-        with st.form("form_cadastro"):
-            nome_usuario = st.text_input("Seu nome completo")
-            email_cad    = st.text_input("E-mail")
-            senha_cad    = st.text_input("Senha (mín. 6 caracteres)", type="password")
-            nome_empresa = st.text_input("Nome da empresa / construtora")
-            cidade_cad   = st.text_input("Cidade", value="Fortaleza")
-            estado_cad   = st.selectbox("Estado", ["CE","SP","RJ","MG","BA","PE","RS","SC","PR","GO","DF","AM","PA","MA","PI","RN","PB","AL","SE","ES","MT","MS","RO","AC","RR","AP","TO"])
-            cadastrar    = st.form_submit_button("Criar conta", use_container_width=True, type="primary")
-
-        if cadastrar:
-            if not all([nome_usuario, email_cad, senha_cad, nome_empresa]):
-                st.error("Preencha todos os campos obrigatórios.")
-            elif len(senha_cad) < 6:
-                st.error("Senha deve ter no mínimo 6 caracteres.")
-            else:
+            if entrar:
+                if not email or not senha:
+                    st.error("Preencha e-mail e senha.")
+                    return
                 try:
                     from db import sb
-                    # 1. Cria usuário no Supabase Auth
-                    res_cad = sb().auth.sign_up({
-                        "email":    email_cad,
-                        "password": senha_cad,
-                        "options":  {"data": {"full_name": nome_usuario, "role": "admin"}},
-                    })
-                    if not res_cad.user:
-                        st.error("Não foi possível criar o usuário. Tente outro e-mail.")
+                    res  = sb().auth.sign_in_with_password({"email": email, "password": senha})
+                    meta = res.user.user_metadata or {}
+                    st.session_state.usuario = {
+                        "id":    res.user.id,
+                        "email": res.user.email,
+                        "nome":  meta.get("full_name") or res.user.email,
+                    }
+                    role = None
+                    try:
+                        role_res = sb().table("user_roles").select("role").eq("user_id", res.user.id).execute()
+                        role = role_res.data[0]["role"] if role_res.data else None
+                    except Exception:
+                        pass
+                    if not role:
+                        role = meta.get("role") or "admin"
+                    st.session_state.usuario_role  = role
+                    st.session_state.empresa_id    = meta.get("empresa_id") or "00000000-0000-0000-0000-000000000001"
+                    if role in ("engenheiro", "adm_obra", "suprimentos", "qualidade"):
+                        try:
+                            obras_res = sb().table("usuario_obras").select("obra_id").eq("user_id", res.user.id).execute()
+                            st.session_state.usuario_obras_ids = [r["obra_id"] for r in (obras_res.data or [])]
+                        except Exception:
+                            st.session_state.usuario_obras_ids = []
                     else:
-                        user_id = res_cad.user.id
-                        # 2. Faz login imediato para obter sessão autenticada
-                        res_login = sb().auth.sign_in_with_password({
+                        st.session_state.usuario_obras_ids = []
+                    st.rerun()
+                except Exception as e:
+                    st.error("Login inválido. Verifique e-mail e senha.")
+                    print(f"[auth] erro login: {e}")
+
+        with aba_cadastro:
+            st.markdown('<p style="font-size:13px;color:#1B3A5E;font-weight:600;margin-bottom:12px;">Crie sua conta e comece a usar gratuitamente por 30 dias.</p>', unsafe_allow_html=True)
+            with st.form("form_cadastro"):
+                nome_usuario = st.text_input("Nome completo")
+                email_cad    = st.text_input("E-mail")
+                senha_cad    = st.text_input("Senha (mín. 6 caracteres)", type="password")
+                nome_empresa = st.text_input("Nome da empresa / construtora")
+                cidade_cad   = st.text_input("Cidade", value="Fortaleza")
+                estado_cad   = st.selectbox("Estado", ["CE","SP","RJ","MG","BA","PE","RS","SC","PR","GO","DF","AM","PA","MA","PI","RN","PB","AL","SE","ES","MT","MS","RO","AC","RR","AP","TO"])
+                cadastrar    = st.form_submit_button("Criar conta", use_container_width=True, type="primary")
+
+            if cadastrar:
+                if not all([nome_usuario, email_cad, senha_cad, nome_empresa]):
+                    st.error("Preencha todos os campos obrigatórios.")
+                elif len(senha_cad) < 6:
+                    st.error("Senha deve ter no mínimo 6 caracteres.")
+                else:
+                    try:
+                        from db import sb
+                        res_cad = sb().auth.sign_up({
                             "email":    email_cad,
                             "password": senha_cad,
+                            "options":  {"data": {"full_name": nome_usuario, "role": "admin"}},
                         })
-                        # 3. Cria empresa e atualiza user_metadata via RPC
-                        try:
-                            rpc_res = sb().rpc("registrar_empresa", {
-                                "p_nome_empresa": nome_empresa,
-                                "p_user_id":      user_id,
-                            }).execute()
-                            empresa_id = rpc_res.data
-                        except Exception as _e_rpc:
-                            print(f"[cadastro] RPC error: {_e_rpc}")
-                            # Fallback: cria empresa direto
-                            emp_res = sb().table("empresas").insert({
-                                "nome":   nome_empresa,
-                                "cidade": cidade_cad,
-                                "estado": estado_cad,
-                            }).execute()
-                            empresa_id = (emp_res.data[0] if emp_res.data else {}).get("id")
+                        if not res_cad.user:
+                            st.error("Não foi possível criar o usuário. Tente outro e-mail.")
+                        else:
+                            user_id   = res_cad.user.id
+                            res_login = sb().auth.sign_in_with_password({"email": email_cad, "password": senha_cad})
+                            try:
+                                rpc_res    = sb().rpc("registrar_empresa", {"p_nome_empresa": nome_empresa, "p_user_id": user_id}).execute()
+                                empresa_id = rpc_res.data
+                            except Exception as _e_rpc:
+                                print(f"[cadastro] RPC error: {_e_rpc}")
+                                emp_res    = sb().table("empresas").insert({"nome": nome_empresa, "cidade": cidade_cad, "estado": estado_cad}).execute()
+                                empresa_id = (emp_res.data[0] if emp_res.data else {}).get("id")
+                            st.session_state.usuario           = {"id": user_id, "email": email_cad, "nome": nome_usuario}
+                            st.session_state.usuario_role      = "admin"
+                            st.session_state.usuario_obras_ids = []
+                            st.session_state.empresa_id        = str(empresa_id) if empresa_id else "00000000-0000-0000-0000-000000000001"
+                            st.success(f"✅ Conta criada! Bem-vindo(a) à {nome_empresa}!")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao criar conta: {e}")
+                        print(f"[cadastro] erro: {e}")
 
-                        # 4. Popula session_state e entra no sistema
-                        st.session_state.usuario = {
-                            "id":    user_id,
-                            "email": email_cad,
-                            "nome":  nome_usuario,
-                        }
-                        st.session_state.usuario_role      = "admin"
-                        st.session_state.usuario_obras_ids = []
-                        st.session_state.empresa_id        = str(empresa_id) if empresa_id else "00000000-0000-0000-0000-000000000001"
-                        st.success(f"✅ Conta criada com sucesso! Bem-vindo(a) à {nome_empresa}!")
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao criar conta: {e}")
-                    print(f"[cadastro] erro: {e}")
+    with col_illus:
+        st.markdown("""
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                    height:100%;min-height:460px;padding:2rem;">
+            <div style="background:linear-gradient(135deg,#1B3A5E 0%,#2A5278 100%);
+                        border-radius:20px;padding:3rem 2rem;text-align:center;width:100%;
+                        box-shadow:0 8px 32px rgba(27,58,94,0.2);">
+                <div style="font-size:5rem;margin-bottom:1rem;">🏗️</div>
+                <div style="color:#FFFFFF;font-size:1.1rem;font-weight:800;text-transform:uppercase;
+                            letter-spacing:1px;margin-bottom:8px;">Gestão Completa</div>
+                <div style="color:#2AACA0;font-size:0.85rem;font-weight:600;text-transform:uppercase;
+                            letter-spacing:1.5px;margin-bottom:1.5rem;">de Obras e Contratos</div>
+                <div style="display:flex;flex-direction:column;gap:10px;text-align:left;">
+                    <div style="color:rgba(255,255,255,0.75);font-size:13px;display:flex;align-items:center;gap:8px;">
+                        <span style="color:#2AACA0;font-size:16px;">✓</span> Orçamento e Medições
+                    </div>
+                    <div style="color:rgba(255,255,255,0.75);font-size:13px;display:flex;align-items:center;gap:8px;">
+                        <span style="color:#2AACA0;font-size:16px;">✓</span> Financeiro e Fluxo de Caixa
+                    </div>
+                    <div style="color:rgba(255,255,255,0.75);font-size:13px;display:flex;align-items:center;gap:8px;">
+                        <span style="color:#2AACA0;font-size:16px;">✓</span> Diário de Obra (RDO)
+                    </div>
+                    <div style="color:rgba(255,255,255,0.75);font-size:13px;display:flex;align-items:center;gap:8px;">
+                        <span style="color:#2AACA0;font-size:16px;">✓</span> Cronograma e EAP
+                    </div>
+                    <div style="color:rgba(255,255,255,0.75);font-size:13px;display:flex;align-items:center;gap:8px;">
+                        <span style="color:#2AACA0;font-size:16px;">✓</span> Qualidade e Suprimentos
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 def _role() -> str:
