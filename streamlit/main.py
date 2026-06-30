@@ -12,7 +12,7 @@ import importlib
 import sync
 importlib.reload(sync)  # garante versão atualizada a cada reload do Streamlit
 
-st.set_page_config(page_title="MBR ERP v8", layout="wide", page_icon="🏗️")
+st.set_page_config(page_title="Prumo ERP", layout="wide", page_icon="🏗️")
 
 # ── Inicialização do estado ───────────────────────────────────────────────────
 
@@ -197,7 +197,7 @@ def _export_excel(df: pd.DataFrame, nome_arquivo: str = "dados.xlsx") -> bytes:
 
 def _auth_login():
     """Tela de login/cadastro. Exibida quando não há usuário autenticado."""
-    st.title("🏗️ ERP MBR Engenharia")
+    st.title("🏗️ Prumo")
     st.caption("Sistema de gestão para construtoras e incorporadoras")
     aba_login, aba_cadastro = st.tabs(["🔑 Entrar", "🏢 Criar conta"])
 
@@ -360,7 +360,7 @@ def _dados_obras_dash():
     })
 
 def pagina_dashboard():
-    st.title("🏠 Dashboard — MBR Engenharia")
+    st.title("🏠 Dashboard")
     _init()
 
     # ── Banner de alertas ─────────────────────────────────────────────────────
@@ -770,7 +770,7 @@ def pagina_dashboard():
             st.download_button(
                 label="⬇️ Baixar Relatório Gerencial PDF",
                 data=_pdf_rg,
-                file_name=f"Relatorio_Gerencial_MBR_{_mes_ref.replace('/','-')}.pdf",
+                file_name=f"Relatorio_Gerencial_Prumo_{_mes_ref.replace('/','-')}.pdf",
                 mime="application/pdf",
                 key="btn_dl_rg",
             )
@@ -1901,7 +1901,7 @@ def pagina_pessoal():
                         st.warning("Já existe um lançamento idêntico em Contas a Pagar. Verifique antes de relançar.")
                     else:
                         dados_folha = {
-                            "Obra": ob_lanc, "Fornecedor": "Folha Interna MBR",
+                            "Obra": ob_lanc, "Fornecedor": "Folha de Pagamento Interna",
                             "Descrição": desc_folha, "Categoria": "Folha de Pagamento",
                             "Valor (R$)": custo_emp, "Vencimento": venc_folha,
                             "Status": "A Pagar", "NF": "—", "Forma Pag.": "Transferência",
@@ -3186,8 +3186,8 @@ def app():
     )
     st.sidebar.markdown(
         "<div style='text-align:center;padding:15px 0;border-bottom:2px solid #2B59C3;'>"
-        "<h3 style='color:#2B59C3;font-weight:700;margin:0;'>MBR Engenharia</h3>"
-        "<p style='color:#6C757D;font-size:13px;margin:5px 0 0 0;'>ERP v9.0 • Supabase</p></div>",
+        "<h3 style='color:#2B59C3;font-weight:700;margin:0;'>Prumo</h3>"
+        "<p style='color:#6C757D;font-size:13px;margin:5px 0 0 0;'>ERP v1.0 • Supabase</p></div>",
         unsafe_allow_html=True,
     )
 
@@ -3269,5 +3269,5 @@ def app():
             st.code(_tb.format_exc())
         print(f"[app] Erro em página '{p}': {_tb.format_exc()}")
 
-pg = st.navigation([st.Page(app, title="MBR ERP", default=True)], position="hidden")
+pg = st.navigation([st.Page(app, title="Prumo ERP", default=True)], position="hidden")
 pg.run()
