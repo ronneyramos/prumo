@@ -3651,13 +3651,9 @@ def _apply_css():
             background: #FFFFFF;
         }
 
-        /* ── File uploader — oculta label duplicado ── */
-        [data-testid="stFileUploader"] [data-testid="stWidgetLabel"],
-        [data-testid="stFileUploader"] [data-testid="stWidgetLabel"] *,
-        [data-testid="stFileUploader"] label,
-        [data-testid="stFileUploader"] > div > label {
+        /* ── File uploader — oculta SOMENTE o stWidgetLabel (nome do widget) ── */
+        [data-testid="stFileUploader"] [data-testid="stWidgetLabel"] {
             display: none !important;
-            visibility: hidden !important;
             height: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
