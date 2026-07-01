@@ -251,31 +251,20 @@ def _auth_login():
     # ─── COLUNA ESQUERDA — Logo + Form ───────────────────────────────────────
     with col_form:
         # Logo com monograma geométrico P
-        st.markdown("""
-        <div style="display:flex;align-items:center;gap:16px;margin-bottom:2.4rem;">
-            <svg width="58" height="58" viewBox="0 0 58 58" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <!-- P esquerdo navy -->
-                <rect x="3" y="3" width="10" height="52" rx="2" fill="#1B3A5E"/>
-                <rect x="3" y="3" width="30" height="10" rx="2" fill="#1B3A5E"/>
-                <rect x="3" y="22" width="25" height="10" rx="0" fill="#1B3A5E"/>
-                <rect x="23" y="3" width="10" height="29" rx="0" fill="#1B3A5E"/>
-                <!-- P direito teal (offset) -->
-                <rect x="18" y="14" width="9" height="41" rx="2" fill="#2AACA0"/>
-                <rect x="18" y="14" width="30" height="9" rx="2" fill="#2AACA0"/>
-                <rect x="18" y="31" width="25" height="9" rx="0" fill="#2AACA0"/>
-                <rect x="37" y="14" width="9" height="26" rx="0" fill="#2AACA0"/>
-            </svg>
-            <div>
-                <div style="line-height:1;">
-                    <span style="font-size:1.9rem;font-weight:900;color:#1B3A5E;letter-spacing:2px;">PRUMO</span>
-                </div>
-                <div style="font-size:1rem;font-weight:700;color:#2AACA0;letter-spacing:2px;margin-top:1px;">ERP</div>
-                <div style="font-size:8.5px;color:#A0A8B0;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;">
-                    Software de Construção Civil
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+        '<div style="display:flex;align-items:center;gap:16px;margin-bottom:2.4rem;">'
+        '<svg width="58" height="58" viewBox="0 0 58 58" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        '<path d="M 7,52 L 7,7 L 28,7 A 10.5,10.5 0 0 1 28,28 L 7,28"'
+        ' stroke="#1B3A5E" stroke-width="6" stroke-linejoin="miter"/>'
+        '<path d="M 18,52 L 18,18 L 38,18 A 10,10 0 0 1 38,38 L 18,38"'
+        ' stroke="#2AACA0" stroke-width="5" stroke-linejoin="miter"/>'
+        '</svg>'
+        '<div>'
+        '<div style="line-height:1;"><span style="font-size:1.9rem;font-weight:900;color:#1B3A5E;letter-spacing:2px;">PRUMO</span></div>'
+        '<div style="font-size:1rem;font-weight:700;color:#2AACA0;letter-spacing:2px;margin-top:1px;">ERP</div>'
+        '<div style="font-size:8.5px;color:#A0A8B0;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;">Software de Construção Civil</div>'
+        '</div></div>',
+        unsafe_allow_html=True)
 
         if st.session_state.auth_mode == "login":
             # Saudação
