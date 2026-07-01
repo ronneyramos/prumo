@@ -3303,7 +3303,7 @@ def pagina_portal_contratante():
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Progresso Físico", f"{pct:.0f}%")
         c2.metric("Status",           status)
-        c3.metric("Início",           inicio)
+        c3.metric("Data Inicio",      inicio)
         c4.metric("Previsão Entrega", termino)
 
         st.markdown(f"**Responsável técnico:** {resp}")
