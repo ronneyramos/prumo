@@ -3551,6 +3551,9 @@ def _apply_css():
         [data-testid="stBaseButton-headerNoPadding"] {
             visibility: visible !important;
             font-family: 'Material Symbols Rounded' !important;
+            font-feature-settings: 'liga' 1 !important;
+            -webkit-font-feature-settings: 'liga' 1 !important;
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
         }
 
         /* ── Títulos ── */
