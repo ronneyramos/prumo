@@ -3651,6 +3651,12 @@ def _apply_css():
             background: #FFFFFF;
         }
 
+        /* ── File uploader — oculta label duplicado ── */
+        [data-testid="stFileUploader"] label,
+        [data-testid="stFileUploader"] > div > label {
+            display: none !important;
+        }
+
         /* ── Inputs ── */
         [data-testid="stTextInput"] input,
         [data-testid="stNumberInput"] input {
