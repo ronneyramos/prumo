@@ -3551,6 +3551,10 @@ def _apply_css():
         [data-testid="stMainMenuButton"] {
             visibility: hidden !important;
         }
+        /* Restaura fonte Material Icons no botao de colapsar sidebar */
+        [data-testid="stBaseButton-headerNoPadding"] {
+            font-family: 'Material Symbols Rounded', 'Material Icons' !important;
+        }
 
         /* ── Títulos ── */
         h1 {
