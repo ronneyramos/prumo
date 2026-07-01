@@ -1837,11 +1837,12 @@ def pagina_pessoal():
             id_f  = opc_f[sel_f]
             LF    = st.session_state.funcionarios[st.session_state.funcionarios["ID"]==id_f].iloc[0]
             obras_lista = _obras_nomes(["Sede","Todas"])
-            contrato_opts = ["CLT","MEI","Empreiteiro"]
+            contrato_opts = ["CLT","MEI","Empreiteiro","Autônomo","Diarista","Estagiário"]
             with st.form("form_edit_func"):
                 c1,c2 = st.columns(2)
                 nome_f  = c1.text_input("Nome",  value=LF["Nome"])
-                cargo_f = c2.text_input("Cargo", value=LF["Cargo"])
+                cargo_f = c2.text_input("Cargo (livre)", value=str(LF.get("Cargo","") or ""),
+                                        help="Digite qualquer função: Pedreiro, Eletricista, Arquiteto, etc.")
                 tc_idx  = contrato_opts.index(LF.get("Tipo Contrato","CLT")) if LF.get("Tipo Contrato","CLT") in contrato_opts else 0
                 cont_f  = c1.selectbox("Tipo de Contrato", contrato_opts, index=tc_idx)
                 ob_val  = str(LF.get("Obra","") or "")
@@ -2081,19 +2082,31 @@ def pagina_pessoal():
                         )
                         st.rerun()
 
+    _CARGOS_SUGESTOES = [
+        "— digitar abaixo —",
+        "Engenheiro Civil","Engenheiro Eletricista","Engenheiro de Segurança",
+        "Arquiteto","Técnico em Edificações","Mestre de Obras","Encarregado",
+        "Pedreiro Oficial","Pedreiro","Servente","Armador","Carpinteiro",
+        "Eletricista","Encanador/Bombeiro","Pintor","Azulejista","Gesseiro",
+        "Operador de Máquinas","Soldador","Serralheiro",
+        "Técnico de Segurança do Trabalho","Auxiliar Administrativo",
+        "Almoxarife","Apontador","Motorista",
+    ]
     with t4:
         with st.form("form_novo_func"):
             c1,c2 = st.columns(2)
-            nome_nf  = c1.text_input("Nome *")
-            cargo_nf = c2.text_input("Cargo *")
-            cont_nf  = c1.selectbox("Tipo de Contrato *", ["CLT","MEI","Empreiteiro"])
+            nome_nf     = c1.text_input("Nome *")
+            cargo_sel   = c2.selectbox("Cargo *", _CARGOS_SUGESTOES)
+            cargo_livre = c2.text_input("Cargo (outro — deixe em branco se selecionou acima)")
+            cargo_nf    = cargo_livre.strip() if cargo_livre.strip() else (cargo_sel if cargo_sel != "— digitar abaixo —" else "")
+            cont_nf  = c1.selectbox("Tipo de Contrato *", ["CLT","MEI","Empreiteiro","Autônomo","Diarista","Estagiário"])
             obra_nf  = c2.selectbox("Obra Alocada", _obras_nomes(["Sede","Todas"]))
             sal_nf   = c1.number_input("Salário / Valor (R$)", min_value=0.0, step=100.0)
             adm_nf   = c2.text_input("Admissão", value=date.today().strftime("%d/%m/%Y"))
-            sit_nf   = c1.selectbox("Situação", ["Ativo","Férias","Afastado"])
+            sit_nf   = c1.selectbox("Situação", ["Ativo","Férias","Afastado","Demitido"])
             ok_nf    = st.form_submit_button("➕ Cadastrar", type="primary")
         if ok_nf:
-            if not nome_nf or not cargo_nf: st.error("Nome e Cargo obrigatórios.")
+            if not nome_nf or not cargo_nf: st.error("Nome e Cargo obrigatórios. Selecione da lista ou digite no campo 'Cargo (outro)'.")
             else:
                 dados_col = {"Nome": nome_nf, "Cargo": cargo_nf, "Tipo Contrato": cont_nf,
                              "Obra": obra_nf, "Salário (R$)": sal_nf, "Admissão": adm_nf, "Situação": sit_nf}
