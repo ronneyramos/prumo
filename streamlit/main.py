@@ -877,8 +877,8 @@ def pagina_dashboard():
                 "medicoes":       st.session_state.medicoes.copy(),
                 "contas_pagar":   st.session_state.contas_pagar.copy(),
                 "contas_receber": st.session_state.contas_receber.copy(),
-                "ncs":            st.session_state.nao_conformidades.copy(),
-                "funcionarios":   st.session_state.colaboradores.copy(),
+                "ncs":            st.session_state.ncs.copy(),
+                "funcionarios":   st.session_state.funcionarios.copy(),
             }
             _pdf_rg = _gerar_rg(_dados_rg)
             st.download_button(
@@ -2244,13 +2244,15 @@ def _norm_col(s):
     return unicodedata.normalize('NFD', s).encode('ascii', 'ignore').decode('ascii')
 
 
-def _to_num(val):
+def _parse_num_br(val):
     """
     Converte célula de planilha para float, respeitando o padrão BR.
+    Usada exclusivamente na importação de orçamento.
     - float/int vindos do pandas  → retorna direto (sem manipulação de string)
     - string BR com ponto+vírgula → "1.234,56"  → 1234.56  (remove . e troca ,)
     - string BR só com vírgula   → "1234,56"   → 1234.56  (troca , por .)
     - string US/Python só ponto  → "1234.56"   → 1234.56  (sem alteração)
+    Retorna None para valores inválidos/NaN (diferente de _to_num que retorna 0.0).
     """
     import math
     if val is None:
@@ -2617,7 +2619,7 @@ def pagina_orcamento():
                 n_itens  = sum(1 for r in res if r["tipo"]=="ITEM")
                 total_orc = sum(r["total_venda"] for r in res if r["tipo"] == "ITEM" and r.get("total_venda"))
                 ob_row_orc = st.session_state.obras[st.session_state.obras["Nome"] == obra_orc]
-                val_atual_orc = _to_num(ob_row_orc["Valor Contrato (R$)"].iloc[0]) if not ob_row_orc.empty else 0.0
+                val_atual_orc = _parse_num_br(ob_row_orc["Valor Contrato (R$)"].iloc[0]) if not ob_row_orc.empty else 0.0
                 if total_orc > 0 and abs(total_orc - val_atual_orc) > 0.01:
                     st.session_state.orc_valor_proposta = {
                         "total": total_orc, "obra": obra_orc, "atual": val_atual_orc
@@ -3471,7 +3473,7 @@ def pagina_portal_contratante():
 
     # ── Aba Diário de Obra ────────────────────────────────────────────────────
     with tab_rdo:
-        rdos = st.session_state.get("rdos", pd.DataFrame())
+        rdos = st.session_state.get("rdo", pd.DataFrame())
         if not rdos.empty and "Obra" in rdos.columns:
             rdos_obra = rdos[rdos["Obra"] == obra_sel_nome].copy()
         else:
