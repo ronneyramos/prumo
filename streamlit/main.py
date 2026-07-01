@@ -2492,7 +2492,7 @@ def pagina_orcamento():
         icon="📂",
     )
 
-    arquivo = st.file_uploader("Selecione o arquivo", type=["xlsx","xls","csv"])
+    arquivo = st.file_uploader("Selecione o arquivo", type=["xlsx","xls","csv"], label_visibility="collapsed")
 
     # ── Carregamento bruto ──────────────────────────────────────────────────
     # Só relê (e reseta orcamento_mapped) quando o arquivo for diferente do anterior.
@@ -2738,6 +2738,7 @@ def pagina_rdo():
             "Adicione fotos dos serviços executados",
             type=["jpg", "jpeg", "png", "webp"],
             accept_multiple_files=True,
+            label_visibility="collapsed",
             help="As fotos serão incluídas no relatório fotográfico do RDO.",
             key="rdo_fotos_upload"
         )
