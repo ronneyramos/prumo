@@ -588,13 +588,10 @@ def pagina_dashboard():
             if len(obras_df):
                 fig_pie = px.pie(obras_df, values="Valor Contrato (R$)", names="Nome",
                                  hole=0.42, color_discrete_sequence=px.colors.qualitative.Set2)
-                fig_pie.update_traces(textinfo="percent+label", textposition="outside",
-                                      textfont_size=12)
-                fig_pie.update_layout(height=max(360, len(obras_df)*70),
-                                      showlegend=True,
-                                      legend=dict(orientation="h", yanchor="bottom",
-                                                  y=-0.25, xanchor="center", x=0.5),
-                                      margin=dict(l=60, r=60, t=20, b=80))
+                fig_pie.update_traces(textinfo="percent+label", textposition="outside")
+                fig_pie.update_layout(height=max(320, len(obras_df)*65),
+                                      showlegend=False,
+                                      margin=dict(l=40, r=40, t=10, b=40))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
         st.markdown("---")
