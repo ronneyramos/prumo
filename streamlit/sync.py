@@ -699,3 +699,92 @@ def rdo_update_fotos(rdo_id: str, fotos: list) -> bool:
     except Exception:
         print("[sync.rdo_update_fotos] ERRO:\n", traceback.format_exc())
         return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REQUISIÇÕES DE MATERIAIS
+# ─────────────────────────────────────────────────────────────────────────────
+
+_REQ_COLS = ["ID", "SB_ID", "Data", "Obra", "Insumo", "Quantidade",
+             "Unidade", "Status", "Solicitante", "Observação",
+             "Aprovado Por", "Data Aprovação"]
+
+
+def requisicoes_load() -> pd.DataFrame:
+    empty = pd.DataFrame(columns=_REQ_COLS)
+    try:
+        from db import sb
+        rows = (
+            sb().table("requisicoes")
+            .select("*")
+            .eq("empresa_id", _empresa_id())
+            .order("data_solicitacao", desc=True)
+            .execute()
+        ).data or []
+        if not rows:
+            return empty
+        records = []
+        for i, r in enumerate(rows, 1):
+            records.append({
+                "ID":             i,
+                "SB_ID":          r["id"],
+                "Data":           _iso_to_br(r.get("data_solicitacao")),
+                "Obra":           r.get("obra_nome") or "",
+                "Insumo":         r.get("insumo_nome") or "",
+                "Quantidade":     float(r.get("quantidade") or 0),
+                "Unidade":        r.get("unidade") or "un",
+                "Status":         r.get("status") or "Pendente",
+                "Solicitante":    r.get("solicitante") or "",
+                "Observação":     r.get("observacao") or "",
+                "Aprovado Por":   r.get("aprovado_por") or "",
+                "Data Aprovação": _iso_to_br(r.get("data_aprovacao")),
+            })
+        return pd.DataFrame(records)
+    except Exception:
+        print("[sync.requisicoes_load] ERRO:\n", traceback.format_exc())
+        return empty
+
+
+def requisicao_save(dados: dict) -> str | None:
+    try:
+        from db import sb
+        payload = {
+            "empresa_id":       _empresa_id(),
+            "obra_nome":        dados.get("Obra") or None,
+            "insumo_nome":      dados.get("Insumo") or "",
+            "quantidade":       float(dados.get("Quantidade") or 1),
+            "unidade":          dados.get("Unidade") or "un",
+            "status":           "Pendente",
+            "solicitante":      dados.get("Solicitante") or None,
+            "observacao":       dados.get("Observação") or None,
+            "data_solicitacao": _br_to_iso(dados.get("Data")) or None,
+        }
+        obra_nome = dados.get("Obra", "")
+        if obra_nome:
+            try:
+                ob = sb().table("obras").select("id").eq("nome", obra_nome).execute()
+                if ob.data:
+                    payload["obra_id"] = ob.data[0]["id"]
+            except Exception:
+                pass
+        res = sb().table("requisicoes").insert(payload).execute()
+        return res.data[0]["id"] if res.data else None
+    except Exception:
+        print("[sync.requisicao_save] ERRO:\n", traceback.format_exc())
+        return None
+
+
+def requisicao_status_update(sb_id: str, status: str, aprovado_por: str = "") -> bool:
+    try:
+        from db import sb
+        from datetime import date
+        payload: dict = {"status": status}
+        if status == "Aprovada":
+            payload["aprovado_por"]   = aprovado_por or None
+            payload["data_aprovacao"] = date.today().isoformat()
+        sb().table("requisicoes").update(payload).eq("id", sb_id).execute()
+        return True
+    except Exception:
+        print("[sync.requisicao_status_update] ERRO:\n", traceback.format_exc())
+        return False
+

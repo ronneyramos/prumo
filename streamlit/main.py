@@ -92,17 +92,14 @@ def _init():
             "NF/Doc": ["NF-0821","RM-014","NF-0834","RM-015","NF-0843"],
         })
     if "requisicoes" not in st.session_state:
-        st.session_state.requisicoes = pd.DataFrame({
-            "ID": [1,2,3],
-            "Data": ["20/06/2026","22/06/2026","24/06/2026"],
-            "Obra": ["Residencial Beira Mar","Comercial Centro","Condomínio Sol Nascente"],
-            "Insumo": ["Cimento CP-II (sc 50kg)","Aço CA-50 Ø10mm","Piso porcelanato 60x60"],
-            "Quantidade": [50.0,200.0,80.0],
-            "Unidade": ["sc","kg","m²"],
-            "Status": ["Aprovada","Pendente","Pendente"],
-            "Solicitante": ["Mestre Paulo","Eng. Ana","Eng. Beatriz"],
-            "Observação": ["Urgente — estoque baixo","Armação pilares P3 a P8","Área social bloco B"],
-        })
+        try:
+            from sync import requisicoes_load
+            st.session_state.requisicoes = requisicoes_load()
+        except Exception:
+            st.session_state.requisicoes = pd.DataFrame(columns=[
+                "ID","SB_ID","Data","Obra","Insumo","Quantidade",
+                "Unidade","Status","Solicitante","Observação","Aprovado Por","Data Aprovação"
+            ])
     if "ponto" not in st.session_state:
         st.session_state.ponto = pd.DataFrame(columns=["ID","Data","Funcionário","Obra","Tipo","Observação"])
     if "medicoes" not in st.session_state:
@@ -1191,77 +1188,142 @@ def pagina_suprimentos():
 
     elif aba == "📝 Requisições":
         req = st.session_state.requisicoes.copy()
-        badges = {"Aprovada":"🟢","Pendente":"🟡","Reprovada":"🔴"}
-        req_disp = req.copy()
+        badges = {"Aprovada": "🟢", "Pendente": "🟡", "Reprovada": "🔴"}
+
+        # ── Filtros ────────────────────────────────────────────────────
+        fc1, fc2, fc3 = st.columns(3)
+        obras_req  = ["Todas"] + sorted(req["Obra"].dropna().unique().tolist()) if not req.empty else ["Todas"]
+        fil_obra   = fc1.selectbox("Filtrar por Obra",   obras_req,                     key="req_fil_obra")
+        fil_status = fc2.selectbox("Filtrar por Status", ["Todos","Pendente","Aprovada","Reprovada"], key="req_fil_st")
+        if fc3.button("🔄 Recarregar", key="req_reload"):
+            try:
+                from sync import requisicoes_load
+                st.session_state.requisicoes = requisicoes_load()
+                st.rerun()
+            except Exception:
+                pass
+
+        req_view = req.copy()
+        if fil_obra   != "Todas":   req_view = req_view[req_view["Obra"]   == fil_obra]
+        if fil_status != "Todos":   req_view = req_view[req_view["Status"] == fil_status]
+
+        req_disp = req_view.copy()
         req_disp["Status"] = req_disp["Status"].apply(lambda s: f"{badges.get(s,'⚪')} {s}")
-        st.dataframe(req_disp.drop(columns=[c for c in ["ID","SB_ID"] if c in req_disp.columns]), width='stretch', hide_index=True)
+        colunas_vis = [c for c in req_disp.columns if c not in ("ID","SB_ID")]
+        st.dataframe(req_disp[colunas_vis], use_container_width=True, hide_index=True)
+
+        # Métricas rápidas
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Total",    len(req))
+        m2.metric("Pendentes", len(req[req["Status"] == "Pendente"]))
+        m3.metric("Aprovadas", len(req[req["Status"] == "Aprovada"]))
         st.markdown("---")
 
-        # ── Aprovar / Reprovar ────────────────────────────────────────
+        # ── Aprovar / Reprovar (apenas admin/gestor) ──────────────────
         pendentes = req[req["Status"] == "Pendente"]
-        if not pendentes.empty:
+        if not pendentes.empty and _role() in ("admin", "gestor"):
             st.subheader("Aprovar / Reprovar Requisição")
             opc_req = {
-                f"[{r.ID}] {r.Insumo} — {r.Quantidade} un. — {r.Obra}": r.ID
+                f"[{r.ID}] {getattr(r,'Insumo','?')} — {getattr(r,'Quantidade',0)} {getattr(r,'Unidade','un')} — {getattr(r,'Obra','?')}": r
                 for r in pendentes.itertuples()
             }
-            sel_req = st.selectbox("Requisição pendente", list(opc_req.keys()), key="sel_req_ap")
-            id_req  = opc_req[sel_req]
-            row_req = req[req["ID"] == id_req].iloc[0]
-            ra, rb  = st.columns(2)
+            sel_req_label = st.selectbox("Requisição pendente", list(opc_req.keys()), key="sel_req_ap")
+            row_req = opc_req[sel_req_label]
+            sb_id_req = getattr(row_req, "SB_ID", None)
+
+            ra, rb = st.columns(2)
             if ra.button("✅ Aprovar — dar saída no estoque", type="primary", key="btn_req_ap"):
-                ix_req = req[req["ID"] == id_req].index[0]
-                st.session_state.requisicoes.loc[ix_req, "Status"] = "Aprovada"
-                # Movimentação de saída
+                usuario = st.session_state.get("user_email", "gestor")
+                # 1. Supabase
+                if sb_id_req:
+                    try:
+                        from sync import requisicao_status_update
+                        requisicao_status_update(sb_id_req, "Aprovada", usuario)
+                    except Exception:
+                        pass
+                # 2. Session state
+                mask_ss = st.session_state.requisicoes["ID"] == row_req.ID
+                st.session_state.requisicoes.loc[mask_ss, "Status"]      = "Aprovada"
+                st.session_state.requisicoes.loc[mask_ss, "Aprovado Por"] = usuario
+                st.session_state.requisicoes.loc[mask_ss, "Data Aprovação"] = date.today().strftime("%d/%m/%Y")
+                # 3. Saída no estoque local
+                mask_est = (
+                    (st.session_state.estoque["Insumo"] == row_req.Insumo) &
+                    (st.session_state.estoque["Obra"]   == row_req.Obra)
+                )
+                idx_est = st.session_state.estoque[mask_est].index
+                if len(idx_est):
+                    novo_saldo = max(0.0, float(st.session_state.estoque.loc[idx_est[0], "Estoque Atual"]) - float(row_req.Quantidade))
+                    st.session_state.estoque.loc[idx_est[0], "Estoque Atual"] = novo_saldo
+                    st.success(f"✅ Aprovada! Saída de **{row_req.Quantidade} {row_req.Unidade}** de **{row_req.Insumo}** "
+                               f"em **{row_req.Obra}**. Novo saldo: {novo_saldo:.2f} {row_req.Unidade}.")
+                else:
+                    st.warning(f"Aprovada, mas **{row_req.Insumo}** não encontrado no estoque de **{row_req.Obra}**.")
+                # 4. Movimentação de saída local
                 st.session_state.movimentacoes = pd.concat([
                     st.session_state.movimentacoes,
                     pd.DataFrame([{"ID": _next_id(st.session_state.movimentacoes),
                                    "Data": date.today().strftime("%d/%m/%Y"),
-                                   "Tipo": "Saída", "Insumo": row_req["Insumo"],
-                                   "Quantidade": row_req["Quantidade"], "Obra": row_req["Obra"],
-                                   "Responsável": row_req.get("Solicitante",""), "NF/Doc": "REQ"}])
+                                   "Tipo": "Saída", "Insumo": row_req.Insumo,
+                                   "Quantidade": row_req.Quantidade, "Obra": row_req.Obra,
+                                   "Responsável": row_req.Solicitante, "NF/Doc": "REQ"}])
                 ], ignore_index=True)
-                # Atualiza estoque por Insumo + Obra
-                mask_req = (
-                    (st.session_state.estoque["Insumo"] == row_req["Insumo"]) &
-                    (st.session_state.estoque["Obra"]   == row_req["Obra"])
-                )
-                idx_req = st.session_state.estoque[mask_req].index
-                if len(idx_req):
-                    novo_saldo = max(0.0, float(st.session_state.estoque.loc[idx_req[0], "Estoque Atual"]) - float(row_req["Quantidade"]))
-                    st.session_state.estoque.loc[idx_req[0], "Estoque Atual"] = novo_saldo
-                    st.success(f"Requisição aprovada! Saída de {row_req['Quantidade']} un. de "
-                               f"**{row_req['Insumo']}** em {row_req['Obra']}. Saldo: {novo_saldo:.2f} un.")
-                else:
-                    st.warning(f"Aprovada, mas **{row_req['Insumo']}** não encontrado no estoque de "
-                               f"**{row_req['Obra']}**. Verifique o estoque manualmente.")
+                # 5. E-mail de notificação
+                try:
+                    from alertas import _enviar_email
+                    _enviar_email(
+                        assunto=f"[Prumo ERP] Requisição Aprovada — {row_req.Insumo}",
+                        corpo=(f"Requisição aprovada por {usuario}.\n\n"
+                               f"Insumo: {row_req.Insumo}\nQuantidade: {row_req.Quantidade} {row_req.Unidade}\n"
+                               f"Obra: {row_req.Obra}\nSolicitante: {row_req.Solicitante}")
+                    )
+                except Exception:
+                    pass
                 st.rerun()
             if rb.button("❌ Reprovar", key="btn_req_rep"):
-                ix_req = req[req["ID"] == id_req].index[0]
-                st.session_state.requisicoes.loc[ix_req, "Status"] = "Reprovada"
-                st.info("Requisição reprovada."); st.rerun()
+                if sb_id_req:
+                    try:
+                        from sync import requisicao_status_update
+                        requisicao_status_update(sb_id_req, "Reprovada")
+                    except Exception:
+                        pass
+                mask_ss = st.session_state.requisicoes["ID"] == row_req.ID
+                st.session_state.requisicoes.loc[mask_ss, "Status"] = "Reprovada"
+                st.info("Requisição reprovada.")
+                st.rerun()
             st.markdown("---")
+        elif not pendentes.empty:
+            st.info(f"Há **{len(pendentes)}** requisição(ões) pendente(s) aguardando aprovação do gestor.")
 
-        st.subheader("Nova Requisição")
+        # ── Nova Requisição ───────────────────────────────────────────
+        st.subheader("Nova Requisição de Material")
+        insumos_opcoes = sorted(st.session_state.estoque["Insumo"].dropna().unique().tolist()) if not st.session_state.estoque.empty else []
         with st.form("form_req"):
-            c1,c2 = st.columns(2)
-            obra_r   = c1.selectbox("Obra", _obras_nomes())
-            insumo_r = c2.selectbox("Insumo", st.session_state.estoque["Insumo"].tolist())
-            qtd_r    = c1.number_input("Quantidade", min_value=0.01, step=1.0, value=1.0)
-            un_r     = c2.text_input("Unidade")
-            sol_r    = c1.text_input("Solicitante")
-            obs_r    = c2.text_input("Observação")
-            ok_r = st.form_submit_button("📝 Enviar", type="primary")
+            c1, c2 = st.columns(2)
+            obra_r    = c1.selectbox("Obra",      _obras_nomes(), key="req_obra")
+            insumo_r  = c2.selectbox("Insumo",    insumos_opcoes if insumos_opcoes else [""], key="req_insumo")
+            qtd_r     = c1.number_input("Quantidade",  min_value=0.01, step=1.0,  value=1.0, key="req_qtd")
+            un_r      = c2.text_input("Unidade",  value="un", key="req_un")
+            sol_r     = c1.text_input("Solicitante", key="req_sol")
+            obs_r     = c2.text_input("Observação",  key="req_obs")
+            ok_r      = st.form_submit_button("📝 Enviar Requisição", type="primary")
         if ok_r:
-            st.session_state.requisicoes = pd.concat([
-                st.session_state.requisicoes,
-                pd.DataFrame([{"ID": _next_id(st.session_state.requisicoes),
-                               "Data": date.today().strftime("%d/%m/%Y"),
-                               "Obra": obra_r, "Insumo": insumo_r, "Quantidade": qtd_r,
-                               "Unidade": un_r, "Status": "Pendente",
-                               "Solicitante": sol_r, "Observação": obs_r}])
-            ], ignore_index=True)
-            st.success("Requisição enviada!"); st.rerun()
+            dados_req = {"Data": date.today().strftime("%d/%m/%Y"), "Obra": obra_r,
+                         "Insumo": insumo_r, "Quantidade": qtd_r, "Unidade": un_r,
+                         "Solicitante": sol_r, "Observação": obs_r}
+            sb_id_novo = None
+            try:
+                from sync import requisicao_save
+                sb_id_novo = requisicao_save(dados_req)
+            except Exception:
+                pass
+            novo = {"ID": _next_id(st.session_state.requisicoes), "SB_ID": sb_id_novo,
+                    "Status": "Pendente", "Aprovado Por": "", "Data Aprovação": "", **dados_req}
+            st.session_state.requisicoes = pd.concat(
+                [st.session_state.requisicoes, pd.DataFrame([novo])], ignore_index=True
+            )
+            st.success(f"✅ Requisição de **{qtd_r} {un_r}** de **{insumo_r}** enviada para aprovação!")
+            st.rerun()
     elif aba == "➕ Movimentar":
         st.subheader("Registrar Movimentação")
         with st.form("form_mov"):
