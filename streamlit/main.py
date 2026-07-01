@@ -2498,7 +2498,7 @@ def pagina_orcamento():
         icon="📂",
     )
 
-    arquivo = st.file_uploader("Selecione o arquivo", type=["xlsx","xls","csv"], label_visibility="collapsed")
+    arquivo = st.file_uploader("Planilha de itens (.xlsx, .xls ou .csv)", type=["xlsx","xls","csv"])
 
     # ── Carregamento bruto ──────────────────────────────────────────────────
     # Só relê (e reseta orcamento_mapped) quando o arquivo for diferente do anterior.
@@ -2741,10 +2741,9 @@ def pagina_rdo():
         st.markdown("---")
         st.markdown("**📷 Relatório Fotográfico**")
         fotos_upload = st.file_uploader(
-            "Adicione fotos dos serviços executados",
+            "Fotos dos serviços (.jpg, .png, .webp)",
             type=["jpg", "jpeg", "png", "webp"],
             accept_multiple_files=True,
-            label_visibility="collapsed",
             help="As fotos serão incluídas no relatório fotográfico do RDO.",
             key="rdo_fotos_upload"
         )
@@ -3651,13 +3650,6 @@ def _apply_css():
             background: #FFFFFF;
         }
 
-        /* ── File uploader — oculta SOMENTE o stWidgetLabel (nome do widget) ── */
-        [data-testid="stFileUploader"] [data-testid="stWidgetLabel"] {
-            display: none !important;
-            height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-        }
 
         /* ── Inputs ── */
         [data-testid="stTextInput"] input,
