@@ -371,7 +371,13 @@ def _auth_login():
                             st.error("Não foi possível criar o usuário. Tente outro e-mail.")
                         else:
                             user_id = res_cad.user.id
-                            sb().auth.sign_in_with_password({"email": email_cad, "password": senha_cad})
+                            try:
+                                sb().auth.sign_in_with_password({"email": email_cad, "password": senha_cad})
+                            except Exception as _e_login:
+                                if "not confirmed" in str(_e_login).lower():
+                                    st.success("✅ Conta criada! Verifique seu e-mail para confirmar o cadastro e depois faça login.")
+                                    st.stop()
+                                raise _e_login
                             try:
                                 rpc_res    = sb().rpc("registrar_empresa", {"p_nome_empresa": nome_empresa, "p_user_id": user_id}).execute()
                                 empresa_id = rpc_res.data
