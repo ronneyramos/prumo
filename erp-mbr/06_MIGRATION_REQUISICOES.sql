@@ -1,23 +1,25 @@
 -- ============================================================
--- ERP MBR — Migração 06: Requisição de Materiais
+-- ERP MBR — Migração 06: Requisição de Materiais (v2)
 -- Execute no Supabase SQL Editor:
 -- https://supabase.com/dashboard/project/zotruhqntdfpdhtsmjbb/sql
 -- ============================================================
+
+-- Remove versão parcial anterior (se existir)
+DROP TABLE IF EXISTS public.requisicoes CASCADE;
 
 -- ============================================================
 -- SEÇÃO 1 — Tabela requisicoes
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS public.requisicoes (
+CREATE TABLE public.requisicoes (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  empresa_id       UUID NOT NULL REFERENCES public.empresas(id) ON DELETE CASCADE,
-  obra_id          UUID REFERENCES public.obras(id) ON DELETE SET NULL,
+  empresa_id       UUID NOT NULL,
+  obra_id          UUID,
   obra_nome        TEXT,
   insumo_nome      TEXT NOT NULL,
   quantidade       NUMERIC(12,3) NOT NULL DEFAULT 1,
   unidade          TEXT DEFAULT 'un',
-  status           TEXT NOT NULL DEFAULT 'Pendente'
-                   CHECK (status IN ('Pendente','Aprovada','Reprovada')),
+  status           TEXT NOT NULL DEFAULT 'Pendente',
   solicitante      TEXT,
   observacao       TEXT,
   aprovado_por     TEXT,
@@ -27,11 +29,15 @@ CREATE TABLE IF NOT EXISTS public.requisicoes (
   updated_at       TIMESTAMPTZ DEFAULT now()
 );
 
+-- Restrição de status via check
+ALTER TABLE public.requisicoes
+  ADD CONSTRAINT req_status_check
+  CHECK (status IN ('Pendente', 'Aprovada', 'Reprovada'));
+
 -- Índices
-CREATE INDEX IF NOT EXISTS idx_req_empresa  ON public.requisicoes(empresa_id);
-CREATE INDEX IF NOT EXISTS idx_req_obra     ON public.requisicoes(obra_id);
-CREATE INDEX IF NOT EXISTS idx_req_status   ON public.requisicoes(status);
-CREATE INDEX IF NOT EXISTS idx_req_data     ON public.requisicoes(data_solicitacao DESC);
+CREATE INDEX idx_req_empresa ON public.requisicoes(empresa_id);
+CREATE INDEX idx_req_status  ON public.requisicoes(status);
+CREATE INDEX idx_req_data    ON public.requisicoes(data_solicitacao DESC);
 
 -- ============================================================
 -- SEÇÃO 2 — RLS
@@ -39,19 +45,18 @@ CREATE INDEX IF NOT EXISTS idx_req_data     ON public.requisicoes(data_solicitac
 
 ALTER TABLE public.requisicoes ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "req_empresa" ON public.requisicoes;
-CREATE POLICY "req_empresa" ON public.requisicoes
-  USING (empresa_id = (auth.jwt()->'user_metadata'->>'empresa_id')::uuid);
+CREATE POLICY "req_select" ON public.requisicoes
+  FOR SELECT
+  USING (empresa_id = (auth.jwt() -> 'user_metadata' ->> 'empresa_id')::uuid);
 
-DROP POLICY IF EXISTS "req_empresa_insert" ON public.requisicoes;
-CREATE POLICY "req_empresa_insert" ON public.requisicoes
-  FOR INSERT WITH CHECK (empresa_id = (auth.jwt()->'user_metadata'->>'empresa_id')::uuid);
+CREATE POLICY "req_insert" ON public.requisicoes
+  FOR INSERT
+  WITH CHECK (empresa_id = (auth.jwt() -> 'user_metadata' ->> 'empresa_id')::uuid);
 
-DROP POLICY IF EXISTS "req_empresa_update" ON public.requisicoes;
-CREATE POLICY "req_empresa_update" ON public.requisicoes
-  FOR UPDATE USING (empresa_id = (auth.jwt()->'user_metadata'->>'empresa_id')::uuid);
+CREATE POLICY "req_update" ON public.requisicoes
+  FOR UPDATE
+  USING (empresa_id = (auth.jwt() -> 'user_metadata' ->> 'empresa_id')::uuid);
 
--- Permissões
 GRANT SELECT, INSERT, UPDATE ON public.requisicoes TO authenticated;
 GRANT ALL ON public.requisicoes TO service_role;
 
