@@ -385,7 +385,12 @@ def _auth_login():
                             st.session_state.usuario_role      = "admin"
                             st.session_state.usuario_obras_ids = []
                             st.session_state.empresa_id        = str(empresa_id) if empresa_id else "00000000-0000-0000-0000-000000000001"
-                            st.success(f"✅ Bem-vindo(a) à {nome_empresa}!")
+                            # Popula dados de demonstração para a nova empresa
+                            try:
+                                sb().rpc("seed_demo_data", {"p_empresa_id": str(st.session_state.empresa_id)}).execute()
+                            except Exception as _e_seed:
+                                print(f"[cadastro] seed_demo_data: {_e_seed}")
+                            st.success(f"✅ Bem-vindo(a) à {nome_empresa}! Dados de exemplo carregados.")
                             st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao criar conta: {e}")
