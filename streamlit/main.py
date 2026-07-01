@@ -3548,6 +3548,14 @@ def _apply_css():
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
         header { visibility: hidden; }
+        /* Botao colapsar sidebar — especificidade html+attr (0,1,1) vence [class*="st-"] (0,1,0) */
+        html [data-testid="stBaseButton-headerNoPadding"] {
+            visibility: visible !important;
+            font-family: 'Material Symbols Rounded' !important;
+            font-feature-settings: 'liga' 1 !important;
+            -webkit-font-feature-settings: 'liga' 1 !important;
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
+        }
 
         /* ── Títulos ── */
         h1 {
