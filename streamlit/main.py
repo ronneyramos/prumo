@@ -162,6 +162,10 @@ def _obra_valida(nome: str) -> bool:
 def _fmt(v):
     return f"R$ {_to_num(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
 
+def _uniq(series) -> list:
+    """Retorna lista ordenada de valores únicos não-nulos de uma Series."""
+    return sorted([v for v in series.unique() if pd.notna(v) and str(v).strip()])
+
 def _to_num(v) -> float:
     """Converte para float aceitando strings R$ 58.000,00 ou numéricos."""
     if v is None:
@@ -888,8 +892,8 @@ def pagina_obras():
     if aba == "📋 Listagem":
         obras = st.session_state.obras.copy()
         cf1,cf2 = st.columns(2)
-        fs = cf1.selectbox("Status",["Todos"]+sorted(obras["Status"].unique().tolist()))
-        fr = cf2.selectbox("Responsável",["Todos"]+sorted(obras["Responsável"].unique().tolist()))
+        fs = cf1.selectbox("Status",["Todos"]+sorted([v for v in obras["Status"].unique() if pd.notna(v) and str(v).strip()]))
+        fr = cf2.selectbox("Responsável",["Todos"]+sorted([v for v in obras["Responsável"].unique() if pd.notna(v) and str(v).strip()]))
         if fs != "Todos": obras = obras[obras["Status"]==fs]
         if fr != "Todos": obras = obras[obras["Responsável"]==fr]
         st.markdown(f"**{len(obras)} obra(s)**")
@@ -948,7 +952,7 @@ def pagina_obras():
         st.subheader("Histórico de Medições")
         med_df = st.session_state.medicoes.copy()
         if not med_df.empty:
-            obra_f_med = st.selectbox("Filtrar por Obra", ["Todas"] + sorted(med_df["Obra"].unique().tolist()), key="med_filtro_obra")
+            obra_f_med = st.selectbox("Filtrar por Obra", ["Todas"] + _uniq(med_df["Obra"]), key="med_filtro_obra")
             med_view = med_df if obra_f_med == "Todas" else med_df[med_df["Obra"] == obra_f_med]
             med_view["Valor Medido (R$)"] = med_view["Valor Medido (R$)"].apply(_fmt)
             _med_exib = med_view.drop(columns=[c for c in ["ID","SB_ID"] if c in med_view.columns])
@@ -963,7 +967,7 @@ def pagina_obras():
         if not med_df.empty:
             st.markdown("---")
             st.subheader("📄 Exportar Boletim de Medição (PDF)")
-            obras_com_med = sorted(med_df["Obra"].unique().tolist())
+            obras_com_med = _uniq(med_df["Obra"])
             obra_bm_pdf = st.selectbox("Obra para o BM", obras_com_med, key="bm_pdf_obra")
             meds_obra = med_df[med_df["Obra"] == obra_bm_pdf].copy()
             if not meds_obra.empty:
@@ -1133,7 +1137,7 @@ def pagina_suprimentos():
         c2.metric("Itens em Alerta",len(est[est["Estoque Atual"]<est["Estoque Mínimo"]]))
         c3.metric("Obras Abastecidas",est["Obra"].nunique())
         st.markdown("---")
-        fo = st.selectbox("Obra",["Todas"]+sorted(est["Obra"].unique().tolist()))
+        fo = st.selectbox("Obra",["Todas"]+_uniq(est["Obra"]))
         if fo != "Todas": est = est[est["Obra"]==fo]
         _est_exib = est.drop(columns=[c for c in ["ID","SB_ID"] if c in est.columns])
         st.dataframe(_est_exib, width='stretch', hide_index=True)
@@ -1205,7 +1209,7 @@ def pagina_suprimentos():
 
         # ── Filtros ────────────────────────────────────────────────────
         fc1, fc2, fc3 = st.columns(3)
-        obras_req  = ["Todas"] + sorted(req["Obra"].dropna().unique().tolist()) if not req.empty else ["Todas"]
+        obras_req  = ["Todas"] + _uniq(req["Obra"]) if not req.empty else ["Todas"]
         fil_obra   = fc1.selectbox("Filtrar por Obra",   obras_req,                     key="req_fil_obra")
         fil_status = fc2.selectbox("Filtrar por Status", ["Todos","Pendente","Aprovada","Reprovada"], key="req_fil_st")
         if fc3.button("🔄 Recarregar", key="req_reload"):
@@ -1310,7 +1314,7 @@ def pagina_suprimentos():
 
         # ── Nova Requisição ───────────────────────────────────────────
         st.subheader("Nova Requisição de Material")
-        insumos_opcoes = sorted(st.session_state.estoque["Insumo"].dropna().unique().tolist()) if not st.session_state.estoque.empty else []
+        insumos_opcoes = _uniq(st.session_state.estoque["Insumo"]) if not st.session_state.estoque.empty else []
         with st.form("form_req"):
             c1, c2 = st.columns(2)
             obra_r    = c1.selectbox("Obra",      _obras_nomes(), key="req_obra")
@@ -1441,7 +1445,7 @@ def pagina_suprimentos():
         # ── Seleção de insumo com cadastro dinâmico ───────────────────
         st.markdown("**Insumo ***")
         NOVA_OPCAO = "➕ Cadastrar novo insumo..."
-        insumos_base = sorted(st.session_state.estoque["Insumo"].unique().tolist())
+        insumos_base = _uniq(st.session_state.estoque["Insumo"])
         mat_choice = st.selectbox("Selecione o insumo ou cadastre um novo",
                                   [NOVA_OPCAO] + insumos_base, key="nf_mat_sel")
 
@@ -1568,7 +1572,7 @@ def pagina_financeiro():
         todas_obras = sorted(_obras_nomes())
         c1,c2 = st.columns(2)
         f_ob = c1.selectbox("Obra", ["Todas"] + todas_obras, key=f"fo_{df_key}")
-        f_st = c2.selectbox("Status",["Todos"]+sorted(df["Status"].unique().tolist()), key=f"fs_{df_key}")
+        f_st = c2.selectbox("Status",["Todos"]+_uniq(df["Status"]), key=f"fs_{df_key}")
         if f_ob != "Todas": df = df[df["Obra"]==f_ob]
         if f_st != "Todos": df = df[df["Status"]==f_st]
         return df
@@ -1812,8 +1816,8 @@ def pagina_pessoal():
     with t1:
         funcs = st.session_state.funcionarios.copy()
         cf1,cf2 = st.columns(2)
-        fo_f = cf1.selectbox("Obra",    ["Todas"]+sorted(funcs["Obra"].unique().tolist()),   key="ff_ob")
-        fs_f = cf2.selectbox("Situação",["Todos"]+sorted(funcs["Situação"].unique().tolist()),key="ff_sit")
+        fo_f = cf1.selectbox("Obra",    ["Todas"]+_uniq(funcs["Obra"]),   key="ff_ob")
+        fs_f = cf2.selectbox("Situação",["Todos"]+_uniq(funcs["Situação"]),key="ff_sit")
         if fo_f != "Todas": funcs = funcs[funcs["Obra"]==fo_f]
         if fs_f != "Todos": funcs = funcs[funcs["Situação"]==fs_f]
         c1,c2,c3 = st.columns(3)
@@ -1952,7 +1956,7 @@ def pagina_pessoal():
                 c4.metric("Líquido Total",_fmt(ff_all["Líquido (R$)"].sum()))
                 st.markdown("---")
                 # ── Filtro por Obra ────────────────────────────────────────
-                todas_ob = ["Todas"] + sorted(ff_all["Obra"].unique().tolist())
+                todas_ob = ["Todas"] + _uniq(ff_all["Obra"])
                 ob_folha = st.selectbox("Filtrar por Obra", todas_ob, key="folha_obra_filtro")
                 ff = ff_all.copy() if ob_folha == "Todas" else ff_all[ff_all["Obra"] == ob_folha].copy()
                 if ob_folha != "Todas":
@@ -1982,7 +1986,7 @@ def pagina_pessoal():
                 # ── Exportar Folha em PDF ──────────────────────────────────
                 st.markdown("---")
                 st.subheader("📄 Exportar Folha de Pagamento (PDF)")
-                ob_pdf_folha = st.selectbox("Obra para exportar", ["Todas as Obras"] + sorted(ff_all["Obra"].unique().tolist()), key="folha_pdf_obra")
+                ob_pdf_folha = st.selectbox("Obra para exportar", ["Todas as Obras"] + _uniq(ff_all["Obra"]), key="folha_pdf_obra")
                 ref_pdf_folha = st.text_input("Mês de referência", value=date.today().strftime("%m/%Y"), key="folha_pdf_ref")
                 if st.button("📥 Gerar PDF da Folha", key="btn_gerar_folha", type="primary"):
                     try:
@@ -2133,8 +2137,8 @@ def pagina_qualidade():
     with t1:
         chk = st.session_state.checklists.copy()
         cf1,cf2 = st.columns(2)
-        fo_q = cf1.selectbox("Obra",      ["Todas"]+sorted(chk["Obra"].unique().tolist()),      key="fq_ob")
-        fr_q = cf2.selectbox("Resultado", ["Todos"]+sorted(chk["Resultado"].unique().tolist()),  key="fq_res")
+        fo_q = cf1.selectbox("Obra",      ["Todas"]+_uniq(chk["Obra"]),      key="fq_ob")
+        fr_q = cf2.selectbox("Resultado", ["Todos"]+_uniq(chk["Resultado"]),  key="fq_res")
         if fo_q != "Todas": chk = chk[chk["Obra"]==fo_q]
         if fr_q != "Todos": chk = chk[chk["Resultado"]==fr_q]
         tot = st.session_state.checklists
@@ -2154,8 +2158,8 @@ def pagina_qualidade():
     with t2:
         ncs = st.session_state.ncs.copy()
         cf3,cf4 = st.columns(2)
-        fo_nc = cf3.selectbox("Obra",  ["Todas"]+sorted(ncs["Obra"].unique().tolist()),   key="fnc_ob")
-        fs_nc = cf4.selectbox("Status",["Todos"]+sorted(ncs["Status"].unique().tolist()),  key="fnc_st")
+        fo_nc = cf3.selectbox("Obra",  ["Todas"]+_uniq(ncs["Obra"]),   key="fnc_ob")
+        fs_nc = cf4.selectbox("Status",["Todos"]+_uniq(ncs["Status"]),  key="fnc_st")
         if fo_nc != "Todas": ncs = ncs[ncs["Obra"]==fo_nc]
         if fs_nc != "Todos": ncs = ncs[ncs["Status"]==fs_nc]
         bdg_nc = {"Aberta":"🔴","Em tratamento":"🟡","Encerrada":"🟢"}
