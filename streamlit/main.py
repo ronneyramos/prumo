@@ -3289,8 +3289,57 @@ def pagina_portal_contratante():
     sb_id_sel = obra_sel.get("SB_ID", None)
 
     tab_prog, tab_med, tab_rdo, tab_contato = st.tabs(
-        ["📊 Progresso", "💰 Medições", "📸 Diário de Obra", "📞 Contato"]
+        ["Progresso", "Medi​ções", "Di​ário de Obra", "Contato"]
     )
+
+    # helper: detecta coluna de valor nas medicoes
+    def _col_val_med(df):
+        for c in df.columns:
+            if "valor" in c.lower():
+                return c
+        return None
+
+    # helper: grafico moderno barras + linha acumulada
+    def _grafico_medicoes(df_med, x_col, val_col):
+        import plotly.graph_objects as go
+        df = df_med.copy()
+        df[val_col] = pd.to_numeric(df[val_col], errors="coerce").fillna(0)
+        df = df.sort_values(x_col)
+        df["_acum"] = df[val_col].cumsum()
+        n = len(df)
+        cores = ["#A8DDD9" if i < n - 1 else "#2AACA0" for i in range(n)]
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=df[x_col], y=df[val_col],
+            name="Valor medido",
+            marker=dict(color=cores, cornerradius=6),
+            hovertemplate="<b>%{x}</b><br>R$ %{y:,.0f}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=df[x_col], y=df["_acum"],
+            name="Acumulado",
+            mode="lines+markers",
+            line=dict(color="#1B3A5E", width=2.5),
+            marker=dict(size=8, color="#1B3A5E", symbol="circle",
+                        line=dict(width=2, color="#fff")),
+            hovertemplate="<b>Acumulado</b><br>R$ %{y:,.0f}<extra></extra>",
+            yaxis="y2",
+        ))
+        fig.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(family="Inter, sans-serif", size=12, color="#374151"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                        font=dict(size=11)),
+            hovermode="x unified",
+            margin=dict(l=0, r=0, t=30, b=0),
+            yaxis=dict(title="R$ / medição", gridcolor="#F3F4F6",
+                       tickformat=",.0f", tickprefix="R$ "),
+            yaxis2=dict(title="Acumulado", overlaying="y", side="right",
+                        tickformat=",.0f", tickprefix="R$ ", gridcolor="rgba(0,0,0,0)"),
+            bargap=0.25,
+        )
+        return fig
 
     # ── Aba Progresso ─────────────────────────────────────────────────────────
     with tab_prog:
@@ -3301,10 +3350,10 @@ def pagina_portal_contratante():
         resp     = obra_sel.get("Responsável", "—")
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Progresso Físico", f"{pct:.0f}%")
+        c1.metric("Progresso Fisico", f"{pct:.0f}%")
         c2.metric("Status",           status)
         c3.metric("Data Inicio",      inicio)
-        c4.metric("Previsão Entrega", termino)
+        c4.metric("Prev. Entrega",    termino)
 
         st.markdown(f"**Responsável técnico:** {resp}")
 
@@ -3313,57 +3362,62 @@ def pagina_portal_contratante():
             f'<div style="margin:16px 0 4px;font-size:13px;font-weight:600;color:#1B3A5E;">'
             f'Execução física: {pct:.0f}%</div>'
             f'<div style="background:#EDE8DF;border-radius:8px;height:18px;">'
-            f'<div style="background:#2AACA0;width:{pct:.0f}%;height:18px;border-radius:8px;'
-            f'display:flex;align-items:center;padding-left:8px;">'
+            f'<div style="background:linear-gradient(90deg,#2AACA0,#1B8A80);width:{pct:.0f}%;height:18px;'
+            f'border-radius:8px;display:flex;align-items:center;padding-left:8px;">'
             f'<span style="color:#fff;font-size:11px;font-weight:700;">{pct:.0f}%</span>'
             f'</div></div>',
             unsafe_allow_html=True,
         )
+        st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
 
-        # Medições — gráfico resumo
+        # Grafico de medicoes
         meds = st.session_state.get("medicoes", pd.DataFrame())
-        if not meds.empty and "Obra" in meds.columns:
-            meds_obra = meds[meds["Obra"] == obra_sel_nome].copy()
-            if not meds_obra.empty:
-                st.markdown("#### Evolução das Medições")
-                import plotly.express as px
-                meds_obra["Valor (R$)"] = pd.to_numeric(
-                    meds_obra.get("Valor (R$)", meds_obra.get("Valor Medido (R$)", 0)), errors="coerce"
-                ).fillna(0)
-                fig = px.bar(meds_obra, x="Data" if "Data" in meds_obra.columns else meds_obra.index,
-                             y="Valor (R$)", color_discrete_sequence=["#2AACA0"],
-                             labels={"x": "Medição", "Valor (R$)": "Valor (R$)"})
-                fig.update_layout(showlegend=False, plot_bgcolor="rgba(0,0,0,0)",
-                                  paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0,r=0,t=20,b=0))
-                st.plotly_chart(fig, use_container_width=True)
-
-    # ── Aba Medições ──────────────────────────────────────────────────────────
-    with tab_med:
-        meds = st.session_state.get("medicoes", pd.DataFrame())
-        val_contrato = float(obra_sel.get("Valor Contrato (R$)", 0) or 0)
         if not meds.empty and "Obra" in meds.columns:
             meds_obra = meds[meds["Obra"] == obra_sel_nome].copy()
         else:
             meds_obra = pd.DataFrame()
 
+        st.markdown("**Evolução das medições**")
         if meds_obra.empty:
             st.info("Nenhuma medição registrada para esta obra ainda.")
         else:
-            col_val = next((c for c in meds_obra.columns if "valor" in c.lower()), None)
+            cv = _col_val_med(meds_obra)
+            x_col = "Data" if "Data" in meds_obra.columns else meds_obra.columns[0]
+            if cv:
+                st.plotly_chart(_grafico_medicoes(meds_obra, x_col, cv),
+                                use_container_width=True, key=f"chart_prog_{obra_sel_nome}")
+
+    # ── Aba Medicoes ──────────────────────────────────────────────────────────
+    with tab_med:
+        meds = st.session_state.get("medicoes", pd.DataFrame())
+        val_contrato = float(obra_sel.get("Valor Contrato (R$)", 0) or 0)
+        if not meds.empty and "Obra" in meds.columns:
+            meds_obra_m = meds[meds["Obra"] == obra_sel_nome].copy()
+        else:
+            meds_obra_m = pd.DataFrame()
+
+        if meds_obra_m.empty:
+            st.info("Nenhuma medição registrada para esta obra ainda.")
+        else:
+            col_val = _col_val_med(meds_obra_m)
             if col_val:
-                meds_obra[col_val] = pd.to_numeric(meds_obra[col_val], errors="coerce").fillna(0)
-                total_medido = meds_obra[col_val].sum()
+                meds_obra_m[col_val] = pd.to_numeric(meds_obra_m[col_val], errors="coerce").fillna(0)
+                total_medido = meds_obra_m[col_val].sum()
                 pct_fin = (total_medido / val_contrato * 100) if val_contrato else 0
 
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Valor do Contrato",   f"R$ {val_contrato:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                m2.metric("Total Medido",         f"R$ {total_medido:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                m3.metric("% Financeiro Medido",  f"{pct_fin:.1f}%")
+                m1.metric("Valor do Contrato",  f"R$ {val_contrato:,.2f}".replace(",","X").replace(".",",").replace("X","."))
+                m2.metric("Total Medido",        f"R$ {total_medido:,.2f}".replace(",","X").replace(".",",").replace("X","."))
+                m3.metric("% Fin. Medido",       f"{pct_fin:.1f}%")
+
+                x_col = "Data" if "Data" in meds_obra_m.columns else meds_obra_m.columns[0]
+                st.plotly_chart(_grafico_medicoes(meds_obra_m, x_col, col_val),
+                                use_container_width=True, key=f"chart_med_{obra_sel_nome}")
                 st.markdown("---")
 
-            colunas_pub = [c for c in meds_obra.columns
+            colunas_pub = [c for c in meds_obra_m.columns
                            if c not in ("SB_ID", "ID") and "bdi" not in c.lower()]
-            st.dataframe(meds_obra[colunas_pub], use_container_width=True, hide_index=True)
+            st.dataframe(meds_obra_m[colunas_pub], use_container_width=True, hide_index=True)
 
     # ── Aba Diário de Obra ────────────────────────────────────────────────────
     with tab_rdo:
