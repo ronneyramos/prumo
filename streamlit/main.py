@@ -236,8 +236,6 @@ def _auth_login():
             box-shadow: 0 2px 24px rgba(27,58,94,0.09) !important;
             margin-bottom: 14px !important;
         }
-        /* Remove label nativo do text_input (usamos labels HTML customizados) */
-        [data-testid="stTextInput"] label { display: none !important; }
         [data-testid="stTextInput"] { margin-bottom: 2px !important; }
         /* Labels do selectbox no cadastro */
         [data-testid="stSelectbox"] label { font-size: 12px !important; color: #6B7280 !important; }
@@ -347,10 +345,10 @@ def _auth_login():
             </div>
             """, unsafe_allow_html=True)
             with st.form("form_cadastro"):
-                nome_usuario = st.text_input("Nome completo")
-                email_cad    = st.text_input("E-mail")
-                senha_cad    = st.text_input("Senha (mín. 6 caracteres)", type="password")
-                nome_empresa = st.text_input("Nome da empresa / construtora")
+                nome_usuario = st.text_input("Nome completo", placeholder="Ex: João Silva")
+                email_cad    = st.text_input("E-mail", placeholder="seu@email.com")
+                senha_cad    = st.text_input("Senha", type="password", placeholder="Mínimo 6 caracteres")
+                nome_empresa = st.text_input("Nome da empresa / construtora", placeholder="Ex: MBR Engenharia")
                 cidade_cad   = st.text_input("Cidade", value="Fortaleza")
                 estado_cad   = st.selectbox("Estado", ["CE","SP","RJ","MG","BA","PE","RS","SC","PR","GO","DF","AM","PA","MA","PI","RN","PB","AL","SE","ES","MT","MS","RO","AC","RR","AP","TO"])
                 cadastrar    = st.form_submit_button("CRIAR CONTA", use_container_width=True, type="primary")
