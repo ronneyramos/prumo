@@ -3519,6 +3519,12 @@ Para dúvidas ou solicitações, entre em contato diretamente com o responsável
 # ── Layout principal ──────────────────────────────────────────────────────────
 
 def _apply_css():
+    # Define lang=pt-BR para impedir que o Chrome auto-translate sobreponha textos
+    st.markdown(
+        '<script>document.documentElement.lang="pt-BR";'
+        'document.documentElement.setAttribute("translate","no");</script>',
+        unsafe_allow_html=True,
+    )
     # Paleta Prumo Modelo 3:
     # Navy Blue  #1B3A5E  — sidebar, títulos
     # Blue-Green #2AACA0  — acento, botões, valores
