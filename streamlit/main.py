@@ -3546,15 +3546,7 @@ def _apply_css():
         }
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
-        /* Esconde só Deploy e menu hamburguer — deixa o botao de colapsar sidebar visivel */
-        [data-testid="stBaseButton-header"],
-        [data-testid="stMainMenuButton"] {
-            visibility: hidden !important;
-        }
-        /* Restaura fonte Material Icons no botao de colapsar sidebar */
-        [data-testid="stBaseButton-headerNoPadding"] {
-            font-family: 'Material Symbols Rounded', 'Material Icons' !important;
-        }
+        header { visibility: hidden; }
 
         /* ── Títulos ── */
         h1 {
