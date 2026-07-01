@@ -941,13 +941,13 @@ def pagina_obras():
             st.session_state.obras.loc[idx,["Nome","Tipo","Cliente","CNPJ Cliente","Endereço","Responsável","Valor Contrato (R$)","BDI (%)","Início","Término","% Físico","Status"]] = [nome,tipo,cliente,cnpj,end,resp,valor,bdi,ini,term,pct,stat]
             try: sync.obra_save({"Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Responsável":resp,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat}, sb_id=_sb_id(st.session_state.obras, id_sel))
             except Exception: pass
-            st.success(f"✅ Obra **{nome}** atualizada com sucesso!"); st.rerun()
+            st.toast(f"✅ Obra **{nome}** atualizada com sucesso!", icon="✅"); st.rerun()
         if excluir:
             _nome_exc = L["Nome"]
             uuid_exc = _sb_id(st.session_state.obras, id_sel)
             st.session_state.obras = st.session_state.obras[st.session_state.obras["ID"]!=id_sel].reset_index(drop=True)
             if uuid_exc: sync.obra_delete(uuid_exc)
-            st.success(f"✅ Obra **{_nome_exc}** removida!"); st.rerun()
+            st.toast(f"✅ Obra **{_nome_exc}** removida!", icon="✅"); st.rerun()
     elif aba == "📏 Medições":
         st.subheader("Histórico de Medições")
         med_df = st.session_state.medicoes.copy()
@@ -1119,7 +1119,7 @@ def pagina_obras():
                 except Exception:
                     uuid_nova = None
                 st.session_state.obras = pd.concat([st.session_state.obras,pd.DataFrame([{"ID":_next_id(st.session_state.obras),"SB_ID":uuid_nova or "","Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat,"Responsável":resp}])],ignore_index=True)
-                st.success(f"✅ Obra **{nome}** cadastrada com sucesso!"); st.rerun()
+                st.toast(f"✅ Obra **{nome}** cadastrada com sucesso!", icon="✅"); st.rerun()
 
 
 # ── Suprimentos ──────────────────────────────────────────────────────────────
@@ -1620,7 +1620,7 @@ def pagina_financeiro():
                     st.session_state.contas_pagar.loc[ix,"Status"] = ns_p
                     uuid_cp = _sb_id(st.session_state.contas_pagar, opc_p[sel_p])
                     if uuid_cp: sync.lancamento_status_update(uuid_cp, ns_p)
-                    st.success(f"✅ Status atualizado para **{ns_p}**!"); st.rerun()
+                    st.toast(f"✅ Status atualizado para **{ns_p}**!", icon="✅"); st.rerun()
             with cb:
                 if st.button("🗑️ Excluir Lançamento", key="del_cp"):
                     _desc_cp = sel_p
@@ -1629,7 +1629,7 @@ def pagina_financeiro():
                         st.session_state.contas_pagar["ID"] != opc_p[sel_p]
                     ].reset_index(drop=True)
                     if uuid_cp_del: sync.lancamento_delete(uuid_cp_del)
-                    st.success(f"✅ Lançamento excluído com sucesso!"); st.rerun()
+                    st.toast(f"✅ Lançamento excluído com sucesso!", icon="✅"); st.rerun()
 
     # ── Contas a Receber ──────────────────────────────────────────────
     with tab_rc:
@@ -1664,7 +1664,7 @@ def pagina_financeiro():
                     st.session_state.contas_receber.loc[ix_r,"Status"] = ns_r
                     uuid_cr = _sb_id(st.session_state.contas_receber, opc_r[sel_r])
                     if uuid_cr: sync.lancamento_status_update(uuid_cr, ns_r)
-                    st.success(f"✅ Status atualizado para **{ns_r}**!"); st.rerun()
+                    st.toast(f"✅ Status atualizado para **{ns_r}**!", icon="✅"); st.rerun()
             with cb_r:
                 if st.button("🗑️ Excluir", key="del_cr"):
                     uuid_cr_del = _sb_id(st.session_state.contas_receber, opc_r[sel_r])
@@ -1672,7 +1672,7 @@ def pagina_financeiro():
                         st.session_state.contas_receber["ID"] != opc_r[sel_r]
                     ].reset_index(drop=True)
                     if uuid_cr_del: sync.lancamento_delete(uuid_cr_del)
-                    st.success(f"✅ Lançamento excluído com sucesso!"); st.rerun()
+                    st.toast(f"✅ Lançamento excluído com sucesso!", icon="✅"); st.rerun()
 
     # ── Novo Lançamento ───────────────────────────────────────────────
     with tab_novo:
@@ -1713,7 +1713,7 @@ def pagina_financeiro():
                                    "SB_ID": uuid_l or "", **dados_cr}])
                 ], ignore_index=True)
             _tipo_msg = "Conta a Pagar" if tipo_l == "Conta a Pagar" else "Conta a Receber"
-            st.success(f"✅ {_tipo_msg} de **{_fmt(val_l)}** para **{obra_l}** adicionada!"); st.rerun()
+            st.toast(f"✅ {_tipo_msg} de **{_fmt(val_l)}** para **{obra_l}** adicionada!", icon="✅"); st.rerun()
 
     # ── Custos por Obra ───────────────────────────────────────────────
     with tab_custo:
@@ -1876,7 +1876,7 @@ def pagina_pessoal():
                 sb_uuid = _sb_id(st.session_state.funcionarios, id_f)
                 sync.colaborador_save({"Nome":nome_f,"Cargo":cargo_f,"Tipo Contrato":cont_f,
                                        "Salário (R$)":sal_f,"Admissão":adm_f,"Situação":sit_f}, sb_id=sb_uuid)
-                st.success(f"✅ Dados de **{nome_f}** atualizados com sucesso!"); st.rerun()
+                st.toast(f"✅ Dados de **{nome_f}** atualizados com sucesso!", icon="✅"); st.rerun()
             if del_f:
                 _nome_del_f = nome_f
                 uuid_f_del = _sb_id(st.session_state.funcionarios, id_f)
@@ -1886,7 +1886,7 @@ def pagina_pessoal():
                         from db import sb
                         sb().table("colaboradores").update({"ativo": False}).eq("id", uuid_f_del).execute()
                     except Exception: pass
-                st.success(f"✅ **{_nome_del_f}** removido do sistema!"); st.rerun()
+                st.toast(f"✅ **{_nome_del_f}** removido do sistema!", icon="✅"); st.rerun()
 
     with t2:
         faltas = st.session_state.ponto.copy()
@@ -1933,7 +1933,7 @@ def pagina_pessoal():
                 pd.DataFrame([{"ID": _next_id(st.session_state.ponto),
                                "SB_ID": _uuid_pt or "", **_dado_pt}])
             ], ignore_index=True)
-            st.success(f"Falta de **{func_p}** em {data_p} registrada."); st.rerun()
+            st.toast(f"Falta de **{func_p}** em {data_p} registrada.", icon="✅"); st.rerun()
 
     with t3:
         if not _pode(["folha"]):
@@ -2124,7 +2124,7 @@ def pagina_pessoal():
                     pd.DataFrame([{"ID": _next_id(st.session_state.funcionarios),
                                    "SB_ID": uuid_col or "", **dados_col}])
                 ], ignore_index=True)
-                st.success(f"✅ Colaborador **{nome_nf}** ({cargo_nf}) cadastrado com sucesso!"); st.rerun()
+                st.toast(f"✅ Colaborador **{nome_nf}** ({cargo_nf}) cadastrado com sucesso!", icon="✅"); st.rerun()
 
 
 # ── Qualidade ─────────────────────────────────────────────────────────────────
@@ -2181,7 +2181,7 @@ def pagina_qualidade():
             if st.button("✅ Atualizar NC",type="primary"):
                 ix_nc = st.session_state.ncs[st.session_state.ncs["ID"]==opc_nc[sel_nc]].index[0]
                 st.session_state.ncs.loc[ix_nc,"Status"]=ns_nc
-                st.success(f"✅ **{sel_nc}** atualizada para status **{ns_nc}**!"); st.rerun()
+                st.toast(f"✅ **{sel_nc}** atualizada para status **{ns_nc}**!", icon="✅"); st.rerun()
 
     with t3:
         with st.form("form_chk"):
@@ -2195,7 +2195,7 @@ def pagina_qualidade():
         if ok_chk:
             st.session_state.checklists = pd.concat([st.session_state.checklists,pd.DataFrame([{"ID":_next_id(st.session_state.checklists),"Data":date.today().strftime("%d/%m/%Y"),"Obra":obra_chk,"Item Inspecionado":item_chk,"Responsável":resp_chk,"Resultado":res_chk,"Observação":obs_chk}])],ignore_index=True)
             _res_icon = "🟢" if res_chk == "Aprovado" else "🔴"
-            st.success(f"✅ Inspeção de **{item_chk}** registrada! Resultado: {_res_icon} {res_chk}"); st.rerun()
+            st.toast(f"✅ Inspeção de **{item_chk}** registrada! Resultado: {_res_icon} {res_chk}", icon="✅"); st.rerun()
 
     with t4:
         with st.form("form_nc"):
@@ -2212,7 +2212,7 @@ def pagina_qualidade():
             dados_nc = {"Descrição":desc_nc,"Gravidade":grav_nc,"Status":"Aberta","Prazo":prazo_nc,"Ação Corretiva":acao_nc}
             uuid_nc = sync.nc_save(dados_nc, obra_sb_id=_obra_uuid(obra_nc))
             st.session_state.ncs = pd.concat([st.session_state.ncs,pd.DataFrame([{"ID":novo_id_nc,"SB_ID":uuid_nc or "","Data Abertura":date.today().strftime("%d/%m/%Y"),"Obra":obra_nc,**dados_nc,"Responsável":resp_nc}])],ignore_index=True)
-            st.success(f"✅ NC **{novo_id_nc}** aberta em **{obra_nc}** (Gravidade: {grav_nc})!"); st.rerun()
+            st.toast(f"✅ NC **{novo_id_nc}** aberta em **{obra_nc}** (Gravidade: {grav_nc})!", icon="✅"); st.rerun()
 
 
 # ── Orçamento (importação) ───────────────────────────────────────────────────
@@ -3080,7 +3080,7 @@ def pagina_eap():
                     ok_dt = st.form_submit_button("💾 Salvar Datas", type="primary")
                 if ok_dt:
                     st.session_state.eap_datas[obra_sel] = novas_datas
-                    st.success("Datas salvas!"); st.rerun()
+                    st.toast("Datas salvas!", icon="✅"); st.rerun()
 
             # Monta Gantt somente para etapas com datas preenchidas
             gantt = []
