@@ -3546,7 +3546,12 @@ def _apply_css():
         }
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
+        /* Esconde header mas mantém botão de colapsar sidebar */
         header { visibility: hidden; }
+        [data-testid="stBaseButton-headerNoPadding"] {
+            visibility: visible !important;
+            font-family: 'Material Symbols Rounded' !important;
+        }
 
         /* ── Títulos ── */
         h1 {
