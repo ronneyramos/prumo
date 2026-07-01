@@ -588,10 +588,14 @@ def pagina_dashboard():
             if len(obras_df):
                 fig_pie = px.pie(obras_df, values="Valor Contrato (R$)", names="Nome",
                                  hole=0.42, color_discrete_sequence=px.colors.qualitative.Set2)
-                fig_pie.update_traces(textinfo="percent+label", textposition="outside")
-                fig_pie.update_layout(height=max(240, len(obras_df)*50),
-                                      showlegend=False, margin=dict(l=0, r=0, t=10, b=0))
-                st.plotly_chart(fig_pie, width='stretch')
+                fig_pie.update_traces(textinfo="percent+label", textposition="outside",
+                                      textfont_size=12)
+                fig_pie.update_layout(height=max(360, len(obras_df)*70),
+                                      showlegend=True,
+                                      legend=dict(orientation="h", yanchor="bottom",
+                                                  y=-0.25, xanchor="center", x=0.5),
+                                      margin=dict(l=60, r=60, t=20, b=80))
+                st.plotly_chart(fig_pie, use_container_width=True)
 
         st.markdown("---")
         cc, cd = st.columns(2)
@@ -3545,10 +3549,10 @@ def _apply_css():
         }
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
-        header { visibility: hidden; }
-        /* Restaura o botao de colapsar/expandir a sidebar */
-        [data-testid="stBaseButton-headerNoPadding"] {
-            visibility: visible !important;
+        /* Esconde só Deploy e menu hamburguer — deixa o botao de colapsar sidebar visivel */
+        [data-testid="stBaseButton-header"],
+        [data-testid="stMainMenuButton"] {
+            visibility: hidden !important;
         }
 
         /* ── Títulos ── */
