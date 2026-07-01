@@ -408,7 +408,7 @@ def _auth_login():
                                 sb().rpc("seed_demo_data", {"p_empresa_id": str(st.session_state.empresa_id)}).execute()
                             except Exception as _e_seed:
                                 print(f"[cadastro] seed_demo_data: {_e_seed}")
-                            st.success(f"✅ Bem-vindo(a) à {nome_empresa}! Dados de exemplo carregados.")
+                            _notify(f"✅ Bem-vindo(a) à {nome_empresa}! Dados de exemplo carregados.")
                             st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao criar conta: {e}")
@@ -1352,7 +1352,7 @@ def pagina_suprimentos():
             st.session_state.requisicoes = pd.concat(
                 [st.session_state.requisicoes, pd.DataFrame([novo])], ignore_index=True
             )
-            st.success(f"✅ Requisição de **{qtd_r} {un_r}** de **{insumo_r}** enviada para aprovação!")
+            _notify(f"✅ Requisição de **{qtd_r} {un_r}** de **{insumo_r}** enviada para aprovação!")
             st.rerun()
     elif aba == "➕ Movimentar":
         st.subheader("Registrar Movimentação")
@@ -1360,7 +1360,7 @@ def pagina_suprimentos():
             c1,c2 = st.columns(2)
             tipo_m   = c1.radio("Tipo", ["Entrada","Saída"])
             obra_m   = c2.selectbox("Obra", _obras_nomes())
-            insumo_m = c1.selectbox("Insumo", st.session_state.estoque["Insumo"].tolist())
+            insumo_m = c1.selectbox("Insumo", _uniq(st.session_state.estoque["Insumo"]) or [""])
             qtd_m    = c2.number_input("Quantidade", min_value=0.01, step=1.0)
             resp_m   = c1.text_input("Responsável")
             doc_m    = c2.text_input("NF / Documento")
@@ -1482,7 +1482,7 @@ def pagina_suprimentos():
                                        "Estoque Atual": 0.0, "Estoque Mínimo": n_min,
                                        "Obra": obra_nf}])
                     ], ignore_index=True)
-                    st.success(f"'{nome_novo}' cadastrado! Agora selecione-o no campo acima.")
+                    _notify(f"'{nome_novo}' cadastrado! Agora selecione-o no campo acima.")
                     st.rerun()
             insumo_final = n_nome.strip()
         else:
@@ -2618,7 +2618,7 @@ def pagina_orcamento():
                     st.session_state.orc_valor_proposta = {
                         "total": total_orc, "obra": obra_orc, "atual": val_atual_orc
                     }
-                st.success(f"✅ Processado: {n_etapas} etapas + {n_itens} itens. EAP vinculada à obra **{obra_orc}**.")
+                _notify(f"✅ Processado: {n_etapas} etapas + {n_itens} itens. EAP vinculada à obra **{obra_orc}**.")
                 st.rerun()
 
         if st.session_state.orcamento_mapped is not None:
@@ -2655,7 +2655,7 @@ def pagina_orcamento():
                     else:
                         st.error(f"❌ Obra '{obra_orc}' não encontrada na listagem.")
                     del st.session_state["orc_valor_proposta"]
-                    st.success(f"✅ Valor Contrato da obra **{obra_orc}** atualizado para {_fmt(total_prop)}!")
+                    _notify(f"✅ Valor Contrato da obra **{obra_orc}** atualizado para {_fmt(total_prop)}!")
                     st.rerun()
                 if _cn.button("❌ Não, manter atual", key="btn_orc_manter"):
                     del st.session_state["orc_valor_proposta"]
@@ -2788,7 +2788,7 @@ def pagina_rdo():
                 )
                 _icone_rdo = "🔴" if status_rdo != "Normal" else "✅"
                 _msg_fotos = f" ({len(urls_fotos)} foto(s) anexada(s))" if urls_fotos else ""
-                st.success(f"{_icone_rdo} RDO de **{str(data_rdo)}** — **{obra_rdo}** salvo! Status: {status_rdo}{_msg_fotos}")
+                _notify(f"{_icone_rdo} RDO de **{str(data_rdo)}** — **{obra_rdo}** salvo! Status: {status_rdo}{_msg_fotos}")
                 st.rerun()
 
     # ── ABA 2: Histórico ─────────────────────────────────────────────────────
@@ -2872,7 +2872,7 @@ def pagina_rdo():
                                 for _k, _v in _dados_ed.items():
                                     st.session_state.rdo.at[_orig_idx[0], _k] = _v
                             del st.session_state["rdo_editando"]
-                            st.success(f"✅ RDO de **{row_d['Data']}** atualizado com sucesso!")
+                            _notify(f"✅ RDO de **{row_d['Data']}** atualizado com sucesso!")
                             st.rerun()
                         if _cancel_ed:
                             del st.session_state["rdo_editando"]
@@ -2893,7 +2893,7 @@ def pagina_rdo():
                             _mask_exc = st.session_state.rdo["ID"] != row_d["ID"]
                             st.session_state.rdo = st.session_state.rdo[_mask_exc].reset_index(drop=True)
                             del st.session_state["rdo_excluindo"]
-                            st.success("✅ RDO excluído com sucesso!")
+                            _notify("✅ RDO excluído com sucesso!")
                             st.rerun()
                         if _cc2.button("❌ Cancelar", key="btn_canc_del_rdo"):
                             del st.session_state["rdo_excluindo"]
