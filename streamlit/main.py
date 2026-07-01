@@ -3657,6 +3657,29 @@ def _apply_css():
         }
 
 
+        /* ── File uploader — substitui texto do botao por CSS (Chrome nao traduz content:) ── */
+        [data-testid="stFileUploaderDropzone"] input[type="file"]::-webkit-file-upload-button,
+        [data-testid="stFileUploaderDropzone"] input[type="file"]::file-selector-button {
+            display: none !important;
+        }
+        [data-testid="stFileUploaderDropzone"] button {
+            color: transparent !important;
+            font-size: 0 !important;
+            position: relative !important;
+        }
+        [data-testid="stFileUploaderDropzone"] button::after {
+            content: "Carregar" !important;
+            font-size: 14px !important;
+            color: #1B3A5E !important;
+            font-weight: 500 !important;
+            font-family: 'Inter', sans-serif !important;
+            position: absolute !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            white-space: nowrap !important;
+        }
+
         /* ── Inputs ── */
         [data-testid="stTextInput"] input,
         [data-testid="stNumberInput"] input {
