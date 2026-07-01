@@ -12,7 +12,8 @@ import importlib
 import sync
 importlib.reload(sync)  # garante versão atualizada a cada reload do Streamlit
 
-st.set_page_config(page_title="Prumo ERP", layout="wide", page_icon="🏗️")
+st.set_page_config(page_title="Prumo ERP", layout="wide", page_icon="🏗️",
+                   initial_sidebar_state="expanded")
 
 # ── Inicialização do estado ───────────────────────────────────────────────────
 
@@ -3546,15 +3547,7 @@ def _apply_css():
         }
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
-        /* Esconde header mas mantém botão de colapsar sidebar */
         header { visibility: hidden; }
-        [data-testid="stBaseButton-headerNoPadding"] {
-            visibility: visible !important;
-            font-family: 'Material Symbols Rounded' !important;
-            font-feature-settings: 'liga' 1 !important;
-            -webkit-font-feature-settings: 'liga' 1 !important;
-            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
-        }
 
         /* ── Títulos ── */
         h1 {
