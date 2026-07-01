@@ -3546,6 +3546,10 @@ def _apply_css():
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
         header { visibility: hidden; }
+        /* Restaura o botao de colapsar/expandir a sidebar */
+        [data-testid="stBaseButton-headerNoPadding"] {
+            visibility: visible !important;
+        }
 
         /* ── Títulos ── */
         h1 {
