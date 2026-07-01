@@ -2470,19 +2470,23 @@ def pagina_orcamento():
 
     # ── Parâmetros (tabela: orcamentos) ────────────────────────────────────
     with st.expander("⚙️ Parâmetros do Orçamento", expanded=True):
-        c1,c2,c3,c4 = st.columns(4)
-        obra_orc    = c1.selectbox("Obra", _obras_nomes(), key="orc_obra")
-        nome_orc    = c2.text_input("Nome", value="Orçamento Rev.1", key="orc_nome")
-        base_ref    = c3.text_input("Base de Referência", value="SINAPI Mai/2026", key="orc_base")
-        bdi_incluso = c4.checkbox("Planilha já inclui BDI", key="orc_bdi_incluso", value=True,
-                                  help="Marque se os preços da planilha já incluem BDI. Desmarque para aplicar BDI adicional.")
-        bdi_orc     = c4.number_input("BDI a aplicar (%)", min_value=0.0, max_value=100.0,
-                                      value=25.0, step=0.5, key="orc_bdi",
-                                      disabled=bdi_incluso,
-                                      help="Só ativo quando a planilha NÃO inclui BDI nos preços.")
-        c1.number_input("Encargos Sociais (%)", min_value=0.0, max_value=100.0, value=80.0, step=0.5, key="orc_enc")
-        c2.number_input("Versão", min_value=1, value=1, key="orc_versao")
-        c3.selectbox("Status", ["Rascunho","Aprovado","Substituído"], key="orc_status")
+        # Linha 1 — identificação
+        r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+        obra_orc    = r1c1.selectbox("Obra", _obras_nomes(), key="orc_obra")
+        nome_orc    = r1c2.text_input("Nome", value="Orçamento Rev.1", key="orc_nome")
+        base_ref    = r1c3.text_input("Base de Referência", value="SINAPI Mai/2026", key="orc_base")
+        bdi_incluso = r1c4.checkbox("BDI já incluso na planilha", key="orc_bdi_incluso", value=True,
+                                    help="Marque se os preços da planilha já incluem BDI. Desmarque para aplicar BDI adicional.")
+
+        # Linha 2 — valores calculados
+        r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+        r2c1.number_input("Encargos Sociais (%)", min_value=0.0, max_value=100.0, value=80.0, step=0.5, key="orc_enc")
+        r2c2.number_input("Versão", min_value=1, value=1, key="orc_versao")
+        r2c3.selectbox("Status", ["Rascunho","Aprovado","Substituído"], key="orc_status")
+        bdi_orc = r2c4.number_input("BDI a aplicar (%)", min_value=0.0, max_value=100.0,
+                                    value=25.0, step=0.5, key="orc_bdi",
+                                    disabled=bdi_incluso,
+                                    help="Só ativo quando a planilha NÃO inclui BDI nos preços.")
 
     st.markdown("---")
     st.subheader("📂 Importar Planilha de Itens")
