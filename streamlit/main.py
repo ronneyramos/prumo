@@ -3652,9 +3652,15 @@ def _apply_css():
         }
 
         /* ── File uploader — oculta label duplicado ── */
+        [data-testid="stFileUploader"] [data-testid="stWidgetLabel"],
+        [data-testid="stFileUploader"] [data-testid="stWidgetLabel"] *,
         [data-testid="stFileUploader"] label,
         [data-testid="stFileUploader"] > div > label {
             display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
 
         /* ── Inputs ── */
