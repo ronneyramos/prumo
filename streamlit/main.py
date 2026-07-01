@@ -407,6 +407,8 @@ def _pode(modulos: list) -> bool:
     r = _role()
     if r == "admin":
         return True
+    if r == "contratante":
+        return any(m in ["portal"] for m in modulos)
     if "orcamento" in modulos:
         return False  # orçamento exclusivo para admin
     permissoes = {
@@ -417,6 +419,8 @@ def _pode(modulos: list) -> bool:
         "qualidade":   ["qualidade", "obras", "rdo"],
         "rh":          ["pessoal", "ponto", "folha"],
         "visualizador":["dashboard", "obras"],
+        "gestor":      ["dashboard", "obras", "suprimentos", "financeiro", "pessoal",
+                        "ponto", "folha", "qualidade", "rdo"],
     }
     permitidos = permissoes.get(r, [])
     return any(m in permitidos for m in modulos)
@@ -3230,6 +3234,183 @@ def pagina_eap():
         )
 
 
+# ── Portal do Contratante ────────────────────────────────────────────────────
+
+def pagina_portal_contratante():
+    _usr   = st.session_state.get("usuario", {})
+    cliente_nome = _usr.get("nome", "Contratante")
+
+    st.markdown(
+        f'<h2 style="color:#1B3A5E;margin-bottom:4px;">🏢 Portal do Contratante</h2>'
+        f'<p style="color:#6B7280;margin-top:0;">Bem-vindo(a), <b>{cliente_nome}</b> — acompanhe suas obras em tempo real.</p>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("---")
+
+    # Obras do contratante (filtradas por usuario_obras_ids)
+    obras = _obras_filtradas(st.session_state.get("obras", pd.DataFrame()))
+    if obras.empty:
+        st.info("Nenhuma obra vinculada à sua conta. Fale com o responsável da construtora.")
+        return
+
+    # ── Cards de obras ───────────────────────────────────────────────────────
+    st.subheader("Suas Obras")
+    cor_status = {"Em andamento": "#2AACA0", "Concluída": "#22c55e",
+                  "Paralisada": "#f59e0b", "Planejamento": "#6366f1"}
+    cols = st.columns(min(len(obras), 3))
+    for i, (_, obra) in enumerate(obras.iterrows()):
+        col = cols[i % 3]
+        pct = float(obra.get("% Físico", 0) or 0)
+        status = obra.get("Status", "")
+        cor = cor_status.get(status, "#6B7280")
+        val_contrato = obra.get("Valor Contrato (R$)", 0) or 0
+        col.markdown(
+            f'<div style="background:#fff;border-radius:12px;padding:18px 16px 14px;'
+            f'border-left:4px solid {cor};box-shadow:0 2px 8px rgba(0,0,0,0.07);margin-bottom:12px;">'
+            f'<div style="font-size:15px;font-weight:700;color:#1B3A5E;margin-bottom:6px;">{obra.get("Nome","")}</div>'
+            f'<div style="font-size:12px;color:{cor};font-weight:600;margin-bottom:10px;">● {status}</div>'
+            f'<div style="background:#EDE8DF;border-radius:4px;height:8px;margin-bottom:6px;">'
+            f'<div style="background:{cor};width:{pct:.0f}%;height:8px;border-radius:4px;"></div></div>'
+            f'<div style="display:flex;justify-content:space-between;font-size:12px;color:#6B7280;">'
+            f'<span>Físico: <b style="color:#1B3A5E">{pct:.0f}%</b></span>'
+            f'<span>Contrato: <b style="color:#1B3A5E">R$ {val_contrato:,.0f}</b></span></div>'
+            f'<div style="font-size:11px;color:#9CA3AF;margin-top:6px;">'
+            f'📍 {obra.get("Endereço","")}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
+    # ── Seletor de obra para detalhes ────────────────────────────────────────
+    nomes_obras = obras["Nome"].tolist()
+    obra_sel_nome = st.selectbox("Ver detalhes da obra:", nomes_obras, key="portal_obra_sel")
+    obra_sel = obras[obras["Nome"] == obra_sel_nome].iloc[0]
+    sb_id_sel = obra_sel.get("SB_ID", None)
+
+    tab_prog, tab_med, tab_rdo, tab_contato = st.tabs(
+        ["📊 Progresso", "💰 Medições", "📸 Diário de Obra", "📞 Contato"]
+    )
+
+    # ── Aba Progresso ─────────────────────────────────────────────────────────
+    with tab_prog:
+        pct = float(obra_sel.get("% Físico", 0) or 0)
+        inicio   = obra_sel.get("Início", "—")
+        termino  = obra_sel.get("Término", "—")
+        status   = obra_sel.get("Status", "—")
+        resp     = obra_sel.get("Responsável", "—")
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Progresso Físico", f"{pct:.0f}%")
+        c2.metric("Status",           status)
+        c3.metric("Início",           inicio)
+        c4.metric("Previsão Entrega", termino)
+
+        st.markdown(f"**Responsável técnico:** {resp}")
+
+        # Barra de progresso visual
+        st.markdown(
+            f'<div style="margin:16px 0 4px;font-size:13px;font-weight:600;color:#1B3A5E;">'
+            f'Execução física: {pct:.0f}%</div>'
+            f'<div style="background:#EDE8DF;border-radius:8px;height:18px;">'
+            f'<div style="background:#2AACA0;width:{pct:.0f}%;height:18px;border-radius:8px;'
+            f'display:flex;align-items:center;padding-left:8px;">'
+            f'<span style="color:#fff;font-size:11px;font-weight:700;">{pct:.0f}%</span>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+
+        # Medições — gráfico resumo
+        meds = st.session_state.get("medicoes", pd.DataFrame())
+        if not meds.empty and "Obra" in meds.columns:
+            meds_obra = meds[meds["Obra"] == obra_sel_nome].copy()
+            if not meds_obra.empty:
+                st.markdown("#### Evolução das Medições")
+                import plotly.express as px
+                meds_obra["Valor (R$)"] = pd.to_numeric(
+                    meds_obra.get("Valor (R$)", meds_obra.get("Valor Medido (R$)", 0)), errors="coerce"
+                ).fillna(0)
+                fig = px.bar(meds_obra, x="Data" if "Data" in meds_obra.columns else meds_obra.index,
+                             y="Valor (R$)", color_discrete_sequence=["#2AACA0"],
+                             labels={"x": "Medição", "Valor (R$)": "Valor (R$)"})
+                fig.update_layout(showlegend=False, plot_bgcolor="rgba(0,0,0,0)",
+                                  paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0,r=0,t=20,b=0))
+                st.plotly_chart(fig, use_container_width=True)
+
+    # ── Aba Medições ──────────────────────────────────────────────────────────
+    with tab_med:
+        meds = st.session_state.get("medicoes", pd.DataFrame())
+        val_contrato = float(obra_sel.get("Valor Contrato (R$)", 0) or 0)
+        if not meds.empty and "Obra" in meds.columns:
+            meds_obra = meds[meds["Obra"] == obra_sel_nome].copy()
+        else:
+            meds_obra = pd.DataFrame()
+
+        if meds_obra.empty:
+            st.info("Nenhuma medição registrada para esta obra ainda.")
+        else:
+            col_val = next((c for c in meds_obra.columns if "valor" in c.lower()), None)
+            if col_val:
+                meds_obra[col_val] = pd.to_numeric(meds_obra[col_val], errors="coerce").fillna(0)
+                total_medido = meds_obra[col_val].sum()
+                pct_fin = (total_medido / val_contrato * 100) if val_contrato else 0
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Valor do Contrato",   f"R$ {val_contrato:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                m2.metric("Total Medido",         f"R$ {total_medido:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                m3.metric("% Financeiro Medido",  f"{pct_fin:.1f}%")
+                st.markdown("---")
+
+            colunas_pub = [c for c in meds_obra.columns
+                           if c not in ("SB_ID", "ID") and "bdi" not in c.lower()]
+            st.dataframe(meds_obra[colunas_pub], use_container_width=True, hide_index=True)
+
+    # ── Aba Diário de Obra ────────────────────────────────────────────────────
+    with tab_rdo:
+        rdos = st.session_state.get("rdos", pd.DataFrame())
+        if not rdos.empty and "Obra" in rdos.columns:
+            rdos_obra = rdos[rdos["Obra"] == obra_sel_nome].copy()
+        else:
+            rdos_obra = pd.DataFrame()
+
+        if rdos_obra.empty:
+            st.info("Nenhum registro diário para esta obra ainda.")
+        else:
+            rdos_obra = rdos_obra.sort_values("Data", ascending=False) if "Data" in rdos_obra.columns else rdos_obra
+            for _, rdo_row in rdos_obra.head(5).iterrows():
+                with st.expander(f"📋 {rdo_row.get('Data','—')} — {rdo_row.get('Status Dia','Normal')}"):
+                    ca, cb = st.columns(2)
+                    ca.markdown(f"**Clima Manhã:** {rdo_row.get('Clima Manhã','—')}")
+                    cb.markdown(f"**Clima Tarde:** {rdo_row.get('Clima Tarde','—')}")
+                    ca.markdown(f"**Efetivo:** {rdo_row.get('Efetivo Total', 0)} pessoas")
+                    cb.markdown(f"**Responsável:** {rdo_row.get('Responsável','—')}")
+                    if rdo_row.get("Atividades"):
+                        st.markdown(f"**Atividades:** {rdo_row['Atividades']}")
+                    if rdo_row.get("Ocorrências"):
+                        st.markdown(f"**Ocorrências:** {rdo_row['Ocorrências']}")
+                    # Fotos
+                    fotos = rdo_row.get("Fotos", [])
+                    if isinstance(fotos, list) and fotos:
+                        st.markdown("**Fotos:**")
+                        fcols = st.columns(min(len(fotos), 4))
+                        for fi, foto in enumerate(fotos[:4]):
+                            url = foto.get("url", "") if isinstance(foto, dict) else str(foto)
+                            if url:
+                                fcols[fi].image(url, use_container_width=True)
+
+    # ── Aba Contato ───────────────────────────────────────────────────────────
+    with tab_contato:
+        resp = obra_sel.get("Responsável", "—")
+        st.markdown(f"""
+**Responsável pela obra:** {resp}
+
+**Construtora:** MBR Engenharia
+
+Para dúvidas ou solicitações, entre em contato diretamente com o responsável técnico da sua obra.
+        """)
+        st.info("📧 Em breve: envio de mensagens direto pelo portal.")
+
+
 # ── Layout principal ──────────────────────────────────────────────────────────
 
 def _apply_css():
@@ -3458,17 +3639,20 @@ def app():
     st.sidebar.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
     # ── Menu filtrado por role ────────────────────────────────────────────────
-    _MENU = {
-        "Principal":          ("🏠", ["dashboard"]),
-        "Obras":              ("🏗️", ["obras"]),
-        "Suprimentos":        ("📦", ["suprimentos"]),
-        "Financeiro":         ("💰", ["financeiro"]),
-        "Pessoal":            ("👥", ["pessoal", "ponto", "folha"]),
-        "Qualidade":          ("✅", ["qualidade"]),
-        "Diário de Obra":     ("📋", ["rdo"]),
-        "Orçamento":          ("📊", ["orcamento"]),
-        "Planejamento (EAP)": ("📅", ["obras"]),
-    }
+    if _role() == "contratante":
+        _MENU = {"Minhas Obras": ("🏢", ["portal"])}
+    else:
+        _MENU = {
+            "Principal":          ("🏠", ["dashboard"]),
+            "Obras":              ("🏗️", ["obras"]),
+            "Suprimentos":        ("📦", ["suprimentos"]),
+            "Financeiro":         ("💰", ["financeiro"]),
+            "Pessoal":            ("👥", ["pessoal", "ponto", "folha"]),
+            "Qualidade":          ("✅", ["qualidade"]),
+            "Diário de Obra":     ("📋", ["rdo"]),
+            "Orçamento":          ("📊", ["orcamento"]),
+            "Planejamento (EAP)": ("📅", ["obras"]),
+        }
     if "pagina_atual" not in st.session_state:
         st.session_state.pagina_atual = "Principal"
     # Redireciona se a página atual não for acessível com o role atual
@@ -3508,7 +3692,8 @@ def app():
 
     p = st.session_state.pagina_atual
     try:
-        if   p == "Principal":          pagina_dashboard()
+        if   p == "Minhas Obras":       pagina_portal_contratante()
+        elif p == "Principal":          pagina_dashboard()
         elif p == "Obras":              pagina_obras()
         elif p == "Suprimentos":        pagina_suprimentos()
         elif p == "Financeiro":         pagina_financeiro()
