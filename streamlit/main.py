@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 import io
 import unicodedata
 import importlib
@@ -54,6 +54,7 @@ def _init():
                 st.session_state.ncs            = sync.ncs_load()
                 st.session_state.medicoes       = sync.medicoes_load()
                 st.session_state.ponto          = sync.faltas_load()
+                st.session_state.ponto_registros= sync.ponto_registro_load()
                 st.session_state.rdo            = sync.rdo_load()
             except Exception as _e:
                 print(f"[_init] Erro ao carregar dados do Supabase: {_e}")
@@ -103,6 +104,11 @@ def _init():
             ])
     if "ponto" not in st.session_state:
         st.session_state.ponto = pd.DataFrame(columns=["ID","Data","Funcionário","Obra","Tipo","Observação"])
+    if "ponto_registros" not in st.session_state:
+        st.session_state.ponto_registros = pd.DataFrame(columns=[
+            "ID","SB_ID","Data","Funcionário","Obra","Entrada","Saída Almoço",
+            "Retorno Almoço","Saída","Horas Normais","Horas Extras","Observação"
+        ])
     if "medicoes" not in st.session_state:
         st.session_state.medicoes = pd.DataFrame(columns=["ID","Data","Obra","Período","% Medido","Valor Medido (R$)","Observação"])
     if "checklists" not in st.session_state:
@@ -192,6 +198,36 @@ def _to_num(v) -> float:
 def _next_id(df):
     return int(df["ID"].max()) + 1 if len(df) > 0 else 1
 
+
+def _tabela_clicavel(df: pd.DataFrame, colunas_exibir: list | None = None,
+                      key: str = "tbl", height="auto", formatters: dict | None = None):
+    """
+    Mostra uma tabela onde clicar numa linha a seleciona (sem dropdown separado).
+    Retorna a Series da linha selecionada (com TODAS as colunas do df original,
+    mesmo que colunas_exibir mostre só um subconjunto) ou None se nada selecionado.
+
+    formatters: dict opcional {coluna: função} aplicado apenas na exibição
+    (o valor retornado na Series continua "cru", sem formatação).
+    """
+    if df.empty:
+        st.info("Nenhum registro encontrado.")
+        return None
+    view = df[colunas_exibir].copy() if colunas_exibir else df.copy()
+    if formatters:
+        for col, fn in formatters.items():
+            if col in view.columns:
+                view[col] = view[col].apply(fn)
+    st.caption("💡 Clique em uma linha da tabela para editar.")
+    event = st.dataframe(
+        view, width='stretch', hide_index=True, height=height,
+        on_select="rerun", selection_mode="single-row", key=key,
+    )
+    sel_rows = (event.get("selection") or {}).get("rows") or [] if event else []
+    if sel_rows:
+        return df.iloc[sel_rows[0]]
+    return None
+
+
 def _export_excel(df: pd.DataFrame, nome_arquivo: str = "dados.xlsx") -> bytes:
     import io
     try:
@@ -235,6 +271,9 @@ def _auth_login():
             box-shadow: 0 0 0 3px rgba(42,172,160,0.15) !important;
             outline: none !important;
         }
+        /* Esconde a dica nativa "Pressione Enter para enviar o formulário" —
+           polui a tela de login, a maioria dos apps não mostra isso */
+        [data-testid="InputInstructions"] { display: none !important; }
         /* Botão laranja pill — igual ao mockup */
         button[kind="primary"] {
             background: #F07820 !important; border: none !important;
@@ -260,21 +299,10 @@ def _auth_login():
 
     # ─── COLUNA ESQUERDA — Logo + Form ───────────────────────────────────────
     with col_form:
-        # Logo com monograma geométrico P
-        st.markdown(
-        '<div style="display:flex;align-items:center;gap:16px;margin-bottom:2.4rem;">'
-        '<svg width="58" height="58" viewBox="0 0 58 58" fill="none" xmlns="http://www.w3.org/2000/svg">'
-        '<path d="M 7,52 L 7,7 L 28,7 A 10.5,10.5 0 0 1 28,28 L 7,28"'
-        ' stroke="#1B3A5E" stroke-width="6" stroke-linejoin="miter"/>'
-        '<path d="M 18,52 L 18,18 L 38,18 A 10,10 0 0 1 38,38 L 18,38"'
-        ' stroke="#2AACA0" stroke-width="5" stroke-linejoin="miter"/>'
-        '</svg>'
-        '<div>'
-        '<div style="line-height:1;"><span style="font-size:1.9rem;font-weight:900;color:#1B3A5E;letter-spacing:2px;">PRUMO</span></div>'
-        '<div style="font-size:1rem;font-weight:700;color:#2AACA0;letter-spacing:2px;margin-top:1px;">ERP</div>'
-        '<div style="font-size:8.5px;color:#A0A8B0;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;">Software de Construção Civil</div>'
-        '</div></div>',
-        unsafe_allow_html=True)
+        # Logo oficial (Modelo 3) — arquivo real, não mais desenhado à mão em SVG
+        _logo_path = os.path.join(os.path.dirname(__file__), "static", "logo.png")
+        st.image(_logo_path, width=340)
+        st.markdown('<div style="margin-bottom:1.2rem;"></div>', unsafe_allow_html=True)
 
         if st.session_state.auth_mode == "login":
             # Saudação
@@ -417,8 +445,16 @@ def _auth_login():
 
     with col_illus:
         import os as _os
+        import base64 as _base64
         _img_path = _os.path.join(_os.path.dirname(__file__), "static", "building.png")
-        st.image(_img_path, use_container_width=True)
+        with open(_img_path, "rb") as _f:
+            _img_b64 = _base64.b64encode(_f.read()).decode()
+        st.markdown(
+            f'<div style="background-image:url(data:image/png;base64,{_img_b64});'
+            'background-size:cover;background-position:center;background-repeat:no-repeat;'
+            'border-radius:16px;height:600px;width:100%;"></div>',
+            unsafe_allow_html=True,
+        )
 
 
 def _role() -> str:
@@ -911,57 +947,66 @@ def pagina_obras():
         if fs != "Todos": obras = obras[obras["Status"]==fs]
         if fr != "Todos": obras = obras[obras["Responsável"]==fr]
         st.markdown(f"**{len(obras)} obra(s)**")
-        exib = obras.drop(columns=[c for c in ["ID","SB_ID"] if c in obras.columns]).copy()
-        exib["Valor Contrato (R$)"] = exib["Valor Contrato (R$)"].apply(_fmt)
-        st.dataframe(exib,width='stretch',hide_index=True)
-        st.download_button("⬇️ Exportar Excel", data=_export_excel(exib), file_name="obras.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           key="btn_xls_obras")
 
-        st.markdown("---")
-        st.subheader("Editar / Excluir")
-        opc = {f"[{r.ID}] {r.Nome}": r.ID for r in st.session_state.obras.itertuples()}
-        if not opc:
+        if obras.empty:
             st.info("Nenhuma obra cadastrada. Use a aba ➕ Nova Obra.")
-            st.stop()
-        sel = st.selectbox("Selecione",list(opc.keys()))
-        id_sel = opc[sel]
-        L = st.session_state.obras[st.session_state.obras["ID"]==id_sel].iloc[0]
-        with st.form("form_edit_obra"):
-            c1,c2 = st.columns(2)
-            nome   = c1.text_input("Nome",        value=L["Nome"])
-            cliente= c2.text_input("Cliente",     value=L["Cliente"])
-            cnpj   = c1.text_input("CNPJ Cliente",value=L.get("CNPJ Cliente",""))
-            tipo_opts = ["Residencial","Comercial","Industrial","Infraestrutura","Outro"]
-            tipo   = c2.selectbox("Tipo",tipo_opts,index=tipo_opts.index(L.get("Tipo","Residencial")) if L.get("Tipo","") in tipo_opts else 0)
-            end    = c1.text_input("Endereço",    value=L["Endereço"])
-            resp   = c2.text_input("Responsável", value=L["Responsável"])
-            valor  = c1.number_input("Valor Contrato (R$)",value=_to_num(L["Valor Contrato (R$)"]),step=1000.0)
-            if _role() == "admin":
-                bdi = c2.number_input("BDI (%)",value=float(L.get("BDI (%)",25.0)),min_value=0.0,max_value=100.0,step=0.5)
-            else:
-                bdi = float(L.get("BDI (%)", 25.0))
-            ini    = c1.text_input("Início",      value=L["Início"])
-            term   = c2.text_input("Término",     value=L["Término"])
-            pct    = c1.slider("% Físico",0,100,int(L["% Físico"]))
-            status_opts = ["Em andamento","Paralisada","Concluída","Planejamento","Cancelada"]
-            st_idx = status_opts.index(L["Status"]) if L["Status"] in status_opts else 0
-            stat   = c2.selectbox("Status",status_opts,index=st_idx)
-            b1,b2,_ = st.columns([1,1,3])
-            salvar  = b1.form_submit_button("💾 Salvar",type="primary")
-            excluir = b2.form_submit_button("🗑️ Excluir")
-        if salvar:
-            idx = st.session_state.obras[st.session_state.obras["ID"]==id_sel].index[0]
-            st.session_state.obras.loc[idx,["Nome","Tipo","Cliente","CNPJ Cliente","Endereço","Responsável","Valor Contrato (R$)","BDI (%)","Início","Término","% Físico","Status"]] = [nome,tipo,cliente,cnpj,end,resp,valor,bdi,ini,term,pct,stat]
-            try: sync.obra_save({"Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Responsável":resp,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat}, sb_id=_sb_id(st.session_state.obras, id_sel))
-            except Exception: pass
-            _notify(f"✅ Obra **{nome}** atualizada com sucesso!"); st.rerun()
-        if excluir:
-            _nome_exc = L["Nome"]
-            uuid_exc = _sb_id(st.session_state.obras, id_sel)
-            st.session_state.obras = st.session_state.obras[st.session_state.obras["ID"]!=id_sel].reset_index(drop=True)
-            if uuid_exc: sync.obra_delete(uuid_exc)
-            _notify(f"✅ Obra **{_nome_exc}** removida!"); st.rerun()
+        else:
+            _status_badge = {"Concluída":"🟢","Em andamento":"🔵","Planejamento":"🟡","Paralisada":"🟠","Cancelada":"🔴"}
+            colunas_obra = ["Nome","Status","% Físico","Valor Contrato (R$)","Cliente","Responsável","Tipo","Início","Término"]
+            L = _tabela_clicavel(
+                obras, colunas_exibir=colunas_obra, key="tbl_obras",
+                formatters={
+                    "Valor Contrato (R$)": _fmt,
+                    "Status": lambda s: f"{_status_badge.get(s,'⚪')} {s}",
+                    "% Físico": lambda p: f"{int(p)}%",
+                },
+            )
+            excel_src = obras.drop(columns=[c for c in ["ID","SB_ID"] if c in obras.columns]).copy()
+            excel_src["Valor Contrato (R$)"] = excel_src["Valor Contrato (R$)"].apply(_fmt)
+            st.download_button("⬇️ Exportar Excel", data=_export_excel(excel_src), file_name="obras.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="btn_xls_obras")
+
+            if L is not None:
+                id_sel = L["ID"]
+                st.markdown("---")
+                with st.container(border=True):
+                    st.markdown(f"#### ✏️ Editando: {L['Nome']}")
+                    with st.form("form_edit_obra"):
+                        c1,c2 = st.columns(2)
+                        nome   = c1.text_input("Nome",        value=L["Nome"])
+                        cliente= c2.text_input("Cliente",     value=L["Cliente"])
+                        cnpj   = c1.text_input("CNPJ Cliente",value=L.get("CNPJ Cliente",""))
+                        tipo_opts = ["Residencial","Comercial","Industrial","Infraestrutura","Outro"]
+                        tipo   = c2.selectbox("Tipo",tipo_opts,index=tipo_opts.index(L.get("Tipo","Residencial")) if L.get("Tipo","") in tipo_opts else 0)
+                        end    = c1.text_input("Endereço",    value=L["Endereço"])
+                        resp   = c2.text_input("Responsável", value=L["Responsável"])
+                        valor  = c1.number_input("Valor Contrato (R$)",value=_to_num(L["Valor Contrato (R$)"]),step=1000.0)
+                        if _role() == "admin":
+                            bdi = c2.number_input("BDI (%)",value=float(L.get("BDI (%)",25.0)),min_value=0.0,max_value=100.0,step=0.5)
+                        else:
+                            bdi = float(L.get("BDI (%)", 25.0))
+                        ini    = c1.text_input("Início",      value=L["Início"])
+                        term   = c2.text_input("Término",     value=L["Término"])
+                        pct    = c1.slider("% Físico",0,100,int(L["% Físico"]))
+                        status_opts = ["Em andamento","Paralisada","Concluída","Planejamento","Cancelada"]
+                        st_idx = status_opts.index(L["Status"]) if L["Status"] in status_opts else 0
+                        stat   = c2.selectbox("Status",status_opts,index=st_idx)
+                        b1,b2,_ = st.columns([1,1,3])
+                        salvar  = b1.form_submit_button("💾 Salvar",type="primary")
+                        excluir = b2.form_submit_button("🗑️ Excluir")
+                    if salvar:
+                        idx = st.session_state.obras[st.session_state.obras["ID"]==id_sel].index[0]
+                        st.session_state.obras.loc[idx,["Nome","Tipo","Cliente","CNPJ Cliente","Endereço","Responsável","Valor Contrato (R$)","BDI (%)","Início","Término","% Físico","Status"]] = [nome,tipo,cliente,cnpj,end,resp,valor,bdi,ini,term,pct,stat]
+                        try: sync.obra_save({"Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Responsável":resp,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat}, sb_id=_sb_id(st.session_state.obras, id_sel))
+                        except Exception: pass
+                        _notify(f"✅ Obra **{nome}** atualizada com sucesso!"); st.rerun()
+                    if excluir:
+                        _nome_exc = L["Nome"]
+                        uuid_exc = _sb_id(st.session_state.obras, id_sel)
+                        st.session_state.obras = st.session_state.obras[st.session_state.obras["ID"]!=id_sel].reset_index(drop=True)
+                        if uuid_exc: sync.obra_delete(uuid_exc)
+                        _notify(f"✅ Obra **{_nome_exc}** removida!"); st.rerun()
     elif aba == "📏 Medições":
         st.subheader("Histórico de Medições")
         med_df = st.session_state.medicoes.copy()
@@ -1611,41 +1656,46 @@ def pagina_financeiro():
         st.markdown("---")
 
         badges = {"Pago":"🟢","A Pagar":"🟡","Vencido":"🔴"}
-        drop_cols = [c for c in ["ID","SB_ID"] if c in df.columns]
-        ex = df.drop(columns=drop_cols).copy()
-        ex["Valor (R$)"] = ex["Valor (R$)"].apply(_fmt)
-        ex["Status"]     = ex["Status"].apply(lambda s: f"{badges.get(s,'⚪')} {s}")
-        st.dataframe(ex, width='stretch', hide_index=True)
-        st.download_button("⬇️ Exportar Excel", data=_export_excel(ex), file_name="contas_pagar.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           key="btn_xls_cp")
-        st.markdown("---")
-
-        st.subheader("Ações")
-        opc_p = {f"[{r.ID}] {r.Fornecedor} — {getattr(r,'Descrição','')}": r.ID
-                 for r in st.session_state.contas_pagar.itertuples()}
-        if not opc_p:
+        if df.empty:
             st.info("Nenhum lançamento a pagar. Use a aba ➕ Novo Lançamento.")
         else:
-            ca, cb = st.columns(2)
-            with ca:
-                sel_p = st.selectbox("Lançamento", list(opc_p.keys()), key="sel_cp")
-                ns_p  = st.selectbox("Novo Status", ["Pago","A Pagar","Vencido","Cancelado"], key="ns_cp")
-                if st.button("✅ Atualizar", key="btn_cp", type="primary"):
-                    ix = st.session_state.contas_pagar[st.session_state.contas_pagar["ID"]==opc_p[sel_p]].index[0]
-                    st.session_state.contas_pagar.loc[ix,"Status"] = ns_p
-                    uuid_cp = _sb_id(st.session_state.contas_pagar, opc_p[sel_p])
-                    if uuid_cp: sync.lancamento_status_update(uuid_cp, ns_p)
-                    _notify(f"✅ Status atualizado para **{ns_p}**!"); st.rerun()
-            with cb:
-                if st.button("🗑️ Excluir Lançamento", key="del_cp"):
-                    _desc_cp = sel_p
-                    uuid_cp_del = _sb_id(st.session_state.contas_pagar, opc_p[sel_p])
-                    st.session_state.contas_pagar = st.session_state.contas_pagar[
-                        st.session_state.contas_pagar["ID"] != opc_p[sel_p]
-                    ].reset_index(drop=True)
-                    if uuid_cp_del: sync.lancamento_delete(uuid_cp_del)
-                    _notify(f"✅ Lançamento excluído com sucesso!"); st.rerun()
+            colunas_cp = ["Fornecedor","Descrição","Categoria","Valor (R$)","Vencimento","Status"]
+            colunas_cp = [c for c in colunas_cp if c in df.columns]
+            LP = _tabela_clicavel(
+                df, colunas_exibir=colunas_cp, key="tbl_cp",
+                formatters={"Valor (R$)": _fmt, "Status": lambda s: f"{badges.get(s,'⚪')} {s}"},
+            )
+            ex = df.drop(columns=[c for c in ["ID","SB_ID"] if c in df.columns]).copy()
+            ex["Valor (R$)"] = ex["Valor (R$)"].apply(_fmt)
+            st.download_button("⬇️ Exportar Excel", data=_export_excel(ex), file_name="contas_pagar.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="btn_xls_cp")
+
+            if LP is not None:
+                id_p = LP["ID"]
+                st.markdown("---")
+                with st.container(border=True):
+                    st.markdown(f"#### ✏️ {LP['Fornecedor']} — {LP.get('Descrição','')}")
+                    ca, cb = st.columns(2)
+                    with ca:
+                        st_opts_p = ["Pago","A Pagar","Vencido","Cancelado"]
+                        ns_p = st.selectbox("Novo Status", st_opts_p,
+                                             index=st_opts_p.index(LP["Status"]) if LP["Status"] in st_opts_p else 0,
+                                             key="ns_cp")
+                        if st.button("✅ Atualizar", key="btn_cp", type="primary"):
+                            ix = st.session_state.contas_pagar[st.session_state.contas_pagar["ID"]==id_p].index[0]
+                            st.session_state.contas_pagar.loc[ix,"Status"] = ns_p
+                            uuid_cp = _sb_id(st.session_state.contas_pagar, id_p)
+                            if uuid_cp: sync.lancamento_status_update(uuid_cp, ns_p)
+                            _notify(f"✅ Status atualizado para **{ns_p}**!"); st.rerun()
+                    with cb:
+                        if st.button("🗑️ Excluir Lançamento", key="del_cp"):
+                            uuid_cp_del = _sb_id(st.session_state.contas_pagar, id_p)
+                            st.session_state.contas_pagar = st.session_state.contas_pagar[
+                                st.session_state.contas_pagar["ID"] != id_p
+                            ].reset_index(drop=True)
+                            if uuid_cp_del: sync.lancamento_delete(uuid_cp_del)
+                            _notify(f"✅ Lançamento excluído com sucesso!"); st.rerun()
 
     # ── Contas a Receber ──────────────────────────────────────────────
     with tab_rc:
@@ -1656,39 +1706,48 @@ def pagina_financeiro():
         c3.metric("A Receber",      _fmt(df_r[df_r["Status"]=="A Receber"]["Valor (R$)"].sum()))
         st.markdown("---")
         badges_r = {"Recebido":"🟢","A Receber":"🟡","Vencido":"🔴"}
-        ex_r = df_r.drop(columns=[c for c in ["ID","SB_ID"] if c in df_r.columns]).copy()
-        ex_r["Valor (R$)"] = ex_r["Valor (R$)"].apply(_fmt)
-        ex_r["Status"]     = ex_r["Status"].apply(lambda s: f"{badges_r.get(s,'⚪')} {s}")
-        st.dataframe(ex_r, width='stretch', hide_index=True)
-        st.download_button("⬇️ Exportar Excel", data=_export_excel(ex_r), file_name="contas_receber.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           key="btn_xls_cr")
-        st.markdown("---")
-        opc_r = {f"[{r.ID}] {r.Cliente} — {r.Descrição}": r.ID
-                 for r in st.session_state.contas_receber.itertuples()}
-        if not opc_r:
+        if df_r.empty:
             st.info("Nenhum lançamento a receber. Use a aba ➕ Novo Lançamento.")
         else:
-            ca_r, cb_r = st.columns(2)
-            with ca_r:
-                sel_r = st.selectbox("Lançamento", list(opc_r.keys()), key="sel_cr")
-                ns_r  = st.selectbox("Novo Status", ["Recebido","A Receber","Vencido","Cancelado"], key="ns_cr")
-                if st.button("✅ Atualizar", key="btn_cr", type="primary"):
-                    ix_r = st.session_state.contas_receber[
-                        st.session_state.contas_receber["ID"] == opc_r[sel_r]
-                    ].index[0]
-                    st.session_state.contas_receber.loc[ix_r,"Status"] = ns_r
-                    uuid_cr = _sb_id(st.session_state.contas_receber, opc_r[sel_r])
-                    if uuid_cr: sync.lancamento_status_update(uuid_cr, ns_r)
-                    _notify(f"✅ Status atualizado para **{ns_r}**!"); st.rerun()
-            with cb_r:
-                if st.button("🗑️ Excluir", key="del_cr"):
-                    uuid_cr_del = _sb_id(st.session_state.contas_receber, opc_r[sel_r])
-                    st.session_state.contas_receber = st.session_state.contas_receber[
-                        st.session_state.contas_receber["ID"] != opc_r[sel_r]
-                    ].reset_index(drop=True)
-                    if uuid_cr_del: sync.lancamento_delete(uuid_cr_del)
-                    _notify(f"✅ Lançamento excluído com sucesso!"); st.rerun()
+            colunas_cr = ["Cliente","Descrição","Valor (R$)","Vencimento","Status"]
+            colunas_cr = [c for c in colunas_cr if c in df_r.columns]
+            LR = _tabela_clicavel(
+                df_r, colunas_exibir=colunas_cr, key="tbl_cr",
+                formatters={"Valor (R$)": _fmt, "Status": lambda s: f"{badges_r.get(s,'⚪')} {s}"},
+            )
+            ex_r = df_r.drop(columns=[c for c in ["ID","SB_ID"] if c in df_r.columns]).copy()
+            ex_r["Valor (R$)"] = ex_r["Valor (R$)"].apply(_fmt)
+            st.download_button("⬇️ Exportar Excel", data=_export_excel(ex_r), file_name="contas_receber.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="btn_xls_cr")
+
+            if LR is not None:
+                id_r = LR["ID"]
+                st.markdown("---")
+                with st.container(border=True):
+                    st.markdown(f"#### ✏️ {LR['Cliente']} — {LR.get('Descrição','')}")
+                    ca_r, cb_r = st.columns(2)
+                    with ca_r:
+                        st_opts_r = ["Recebido","A Receber","Vencido","Cancelado"]
+                        ns_r = st.selectbox("Novo Status", st_opts_r,
+                                             index=st_opts_r.index(LR["Status"]) if LR["Status"] in st_opts_r else 0,
+                                             key="ns_cr")
+                        if st.button("✅ Atualizar", key="btn_cr", type="primary"):
+                            ix_r = st.session_state.contas_receber[
+                                st.session_state.contas_receber["ID"] == id_r
+                            ].index[0]
+                            st.session_state.contas_receber.loc[ix_r,"Status"] = ns_r
+                            uuid_cr = _sb_id(st.session_state.contas_receber, id_r)
+                            if uuid_cr: sync.lancamento_status_update(uuid_cr, ns_r)
+                            _notify(f"✅ Status atualizado para **{ns_r}**!"); st.rerun()
+                    with cb_r:
+                        if st.button("🗑️ Excluir", key="del_cr"):
+                            uuid_cr_del = _sb_id(st.session_state.contas_receber, id_r)
+                            st.session_state.contas_receber = st.session_state.contas_receber[
+                                st.session_state.contas_receber["ID"] != id_r
+                            ].reset_index(drop=True)
+                            if uuid_cr_del: sync.lancamento_delete(uuid_cr_del)
+                            _notify(f"✅ Lançamento excluído com sucesso!"); st.rerun()
 
     # ── Novo Lançamento ───────────────────────────────────────────────
     with tab_novo:
@@ -1843,67 +1902,69 @@ def pagina_pessoal():
         if _role() == "admin":
             c3.metric("Folha Bruta", _fmt(st.session_state.funcionarios["Salário (R$)"].sum()))
         st.markdown("---")
-        ex_f = funcs.drop(columns=[c for c in ["ID","SB_ID"] if c in funcs.columns]).copy()
-        if _role() == "admin":
-            ex_f["Salário (R$)"] = ex_f["Salário (R$)"].apply(_fmt)
-        else:
-            ex_f = ex_f.drop(columns=["Salário (R$)"], errors="ignore")
-        st.dataframe(ex_f,width='stretch',hide_index=True)
-        st.download_button("⬇️ Exportar Excel", data=_export_excel(ex_f), file_name="funcionarios.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                           key="btn_xls_func")
-        st.markdown("---")
-        st.subheader("Editar / Excluir")
-        opc_f = {f"[{r.ID}] {r.Nome} — {r.Cargo}":r.ID for r in st.session_state.funcionarios.itertuples()}
-        if not opc_f:
+        if funcs.empty:
             st.info("Nenhum colaborador cadastrado. Use a aba ➕ Novo Colaborador.")
         else:
-            sel_f = st.selectbox("Funcionário",list(opc_f.keys()))
-            id_f  = opc_f[sel_f]
-            LF    = st.session_state.funcionarios[st.session_state.funcionarios["ID"]==id_f].iloc[0]
-            obras_lista = _obras_nomes(["Sede","Todas"])
-            contrato_opts = ["CLT","MEI","Empreiteiro","Autônomo","Diarista","Estagiário"]
-            with st.form("form_edit_func"):
-                c1,c2 = st.columns(2)
-                nome_f  = c1.text_input("Nome",  value=LF["Nome"])
-                cargo_f = c2.text_input("Cargo (livre)", value=str(LF.get("Cargo","") or ""),
-                                        help="Digite qualquer função: Pedreiro, Eletricista, Arquiteto, etc.")
-                tc_idx  = contrato_opts.index(LF.get("Tipo Contrato","CLT")) if LF.get("Tipo Contrato","CLT") in contrato_opts else 0
-                cont_f  = c1.selectbox("Tipo de Contrato", contrato_opts, index=tc_idx)
-                ob_val  = str(LF.get("Obra","") or "")
-                ob_idx  = obras_lista.index(ob_val) if ob_val in obras_lista else 0
-                obra_f  = c2.selectbox("Obra Alocada", obras_lista, index=ob_idx)
-                if _role() == "admin":
-                    sal_f = c1.number_input("Salário / Valor (R$)", value=_to_num(LF["Salário (R$)"]),step=100.0)
-                else:
-                    sal_f = _to_num(LF["Salário (R$)"])
-                adm_f   = c2.text_input("Admissão", value=str(LF.get("Admissão","") or ""))
-                sit_opts = ["Ativo","Férias","Afastado","Demitido"]
-                sit_val = str(LF.get("Situação","Ativo") or "Ativo")
-                sit_f   = c1.selectbox("Situação", sit_opts,
-                                        index=sit_opts.index(sit_val) if sit_val in sit_opts else 0)
-                b1,b2,_ = st.columns([1,1,3])
-                sv_f  = b1.form_submit_button("💾 Salvar",type="primary")
-                del_f = b2.form_submit_button("🗑️ Excluir")
-            if sv_f:
-                ix_f = st.session_state.funcionarios[st.session_state.funcionarios["ID"]==id_f].index[0]
-                st.session_state.funcionarios.loc[ix_f,
-                    ["Nome","Cargo","Tipo Contrato","Obra","Salário (R$)","Admissão","Situação"]
-                ] = [nome_f, cargo_f, cont_f, obra_f, sal_f, adm_f, sit_f]
-                sb_uuid = _sb_id(st.session_state.funcionarios, id_f)
-                sync.colaborador_save({"Nome":nome_f,"Cargo":cargo_f,"Tipo Contrato":cont_f,
-                                       "Salário (R$)":sal_f,"Admissão":adm_f,"Situação":sit_f}, sb_id=sb_uuid)
-                _notify(f"✅ Dados de **{nome_f}** atualizados com sucesso!"); st.rerun()
-            if del_f:
-                _nome_del_f = nome_f
-                uuid_f_del = _sb_id(st.session_state.funcionarios, id_f)
-                st.session_state.funcionarios = st.session_state.funcionarios[st.session_state.funcionarios["ID"]!=id_f].reset_index(drop=True)
-                if uuid_f_del:
-                    try:
-                        from db import sb
-                        sb().table("colaboradores").update({"ativo": False}).eq("id", uuid_f_del).execute()
-                    except Exception: pass
-                _notify(f"✅ **{_nome_del_f}** removido do sistema!"); st.rerun()
+            _sit_badge = {"Ativo":"🟢","Férias":"🔵","Afastado":"🟡","Demitido":"🔴"}
+            colunas_func = ["Nome","Cargo","Situação","Obra","Tipo Contrato","Admissão"]
+            fmts_func = {"Situação": lambda s: f"{_sit_badge.get(s,'⚪')} {s}"}
+            if _role() == "admin":
+                colunas_func.insert(2, "Salário (R$)")
+                fmts_func["Salário (R$)"] = _fmt
+            LF = _tabela_clicavel(funcs, colunas_exibir=colunas_func, key="tbl_func", formatters=fmts_func)
+            st.download_button("⬇️ Exportar Excel", data=_export_excel(funcs.drop(columns=[c for c in ["ID","SB_ID"] if c in funcs.columns])),
+                               file_name="funcionarios.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="btn_xls_func")
+
+            if LF is not None:
+                id_f = LF["ID"]
+                st.markdown("---")
+                with st.container(border=True):
+                    st.markdown(f"#### ✏️ Editando: {LF['Nome']}")
+                    obras_lista = _obras_nomes(["Sede","Todas"])
+                    contrato_opts = ["CLT","MEI","Empreiteiro","Autônomo","Diarista","Estagiário"]
+                    with st.form("form_edit_func"):
+                        c1,c2 = st.columns(2)
+                        nome_f  = c1.text_input("Nome",  value=LF["Nome"])
+                        cargo_f = c2.text_input("Cargo (livre)", value=str(LF.get("Cargo","") or ""),
+                                                help="Digite qualquer função: Pedreiro, Eletricista, Arquiteto, etc.")
+                        tc_idx  = contrato_opts.index(LF.get("Tipo Contrato","CLT")) if LF.get("Tipo Contrato","CLT") in contrato_opts else 0
+                        cont_f  = c1.selectbox("Tipo de Contrato", contrato_opts, index=tc_idx)
+                        ob_val  = str(LF.get("Obra","") or "")
+                        ob_idx  = obras_lista.index(ob_val) if ob_val in obras_lista else 0
+                        obra_f  = c2.selectbox("Obra Alocada", obras_lista, index=ob_idx)
+                        if _role() == "admin":
+                            sal_f = c1.number_input("Salário / Valor (R$)", value=_to_num(LF["Salário (R$)"]),step=100.0)
+                        else:
+                            sal_f = _to_num(LF["Salário (R$)"])
+                        adm_f   = c2.text_input("Admissão", value=str(LF.get("Admissão","") or ""))
+                        sit_opts = ["Ativo","Férias","Afastado","Demitido"]
+                        sit_val = str(LF.get("Situação","Ativo") or "Ativo")
+                        sit_f   = c1.selectbox("Situação", sit_opts,
+                                                index=sit_opts.index(sit_val) if sit_val in sit_opts else 0)
+                        b1,b2,_ = st.columns([1,1,3])
+                        sv_f  = b1.form_submit_button("💾 Salvar",type="primary")
+                        del_f = b2.form_submit_button("🗑️ Excluir")
+                    if sv_f:
+                        ix_f = st.session_state.funcionarios[st.session_state.funcionarios["ID"]==id_f].index[0]
+                        st.session_state.funcionarios.loc[ix_f,
+                            ["Nome","Cargo","Tipo Contrato","Obra","Salário (R$)","Admissão","Situação"]
+                        ] = [nome_f, cargo_f, cont_f, obra_f, sal_f, adm_f, sit_f]
+                        sb_uuid = _sb_id(st.session_state.funcionarios, id_f)
+                        sync.colaborador_save({"Nome":nome_f,"Cargo":cargo_f,"Tipo Contrato":cont_f,
+                                               "Salário (R$)":sal_f,"Admissão":adm_f,"Situação":sit_f}, sb_id=sb_uuid)
+                        _notify(f"✅ Dados de **{nome_f}** atualizados com sucesso!"); st.rerun()
+                    if del_f:
+                        _nome_del_f = nome_f
+                        uuid_f_del = _sb_id(st.session_state.funcionarios, id_f)
+                        st.session_state.funcionarios = st.session_state.funcionarios[st.session_state.funcionarios["ID"]!=id_f].reset_index(drop=True)
+                        if uuid_f_del:
+                            try:
+                                from db import sb
+                                sb().table("colaboradores").update({"ativo": False}).eq("id", uuid_f_del).execute()
+                            except Exception: pass
+                        _notify(f"✅ **{_nome_del_f}** removido do sistema!"); st.rerun()
 
     with t2:
         faltas = st.session_state.ponto.copy()
@@ -1951,6 +2012,56 @@ def pagina_pessoal():
                                "SB_ID": _uuid_pt or "", **_dado_pt}])
             ], ignore_index=True)
             _notify(f"Falta de **{func_p}** em {data_p} registrada."); st.rerun()
+
+        st.markdown("---")
+        st.subheader("Registro de Horário (Entrada / Saída)")
+        regs = st.session_state.ponto_registros.copy()
+        if not regs.empty:
+            datas_reg = sorted(regs["Data"].unique().tolist(), reverse=True)
+            d_sel_reg = st.selectbox("Data", datas_reg, key="ponto_reg_data_filtro")
+            dia_reg = regs[regs["Data"] == d_sel_reg]
+            drop_reg = [c for c in ["ID","SB_ID"] if c in dia_reg.columns]
+            st.dataframe(dia_reg.drop(columns=drop_reg), width='stretch', hide_index=True)
+        else:
+            st.info("Nenhum registro de horário lançado ainda.")
+
+        st.markdown("**Bater ponto do dia**")
+        with st.form("form_ponto_registro"):
+            c1, c2 = st.columns(2)
+            _funcs_reg = _ff_pt["Nome"].tolist() if not _ff_pt.empty else ["(nenhum colaborador)"]
+            func_reg  = c1.selectbox("Funcionário", _funcs_reg, key="ponto_reg_func")
+            data_reg  = c2.text_input("Data", value=date.today().strftime("%d/%m/%Y"), key="ponto_reg_data")
+            obra_reg  = c1.selectbox("Obra", _obras_nomes(), key="ponto_reg_obra")
+            obs_reg   = c2.text_input("Observação", key="ponto_reg_obs")
+            c3, c4, c5, c6 = st.columns(4)
+            entrada_reg  = c3.time_input("Entrada", value=time(7, 0), key="ponto_reg_entrada")
+            said_alm_reg = c4.time_input("Saída Almoço", value=time(12, 0), key="ponto_reg_saida_almoco")
+            ret_alm_reg  = c5.time_input("Retorno Almoço", value=time(13, 0), key="ponto_reg_retorno_almoco")
+            saida_reg    = c6.time_input("Saída", value=time(17, 0), key="ponto_reg_saida")
+            ok_reg = st.form_submit_button("🕐 Registrar Ponto", type="primary")
+        if ok_reg:
+            horas_manha  = (datetime.combine(date.today(), said_alm_reg) - datetime.combine(date.today(), entrada_reg)).total_seconds() / 3600
+            horas_tarde  = (datetime.combine(date.today(), saida_reg) - datetime.combine(date.today(), ret_alm_reg)).total_seconds() / 3600
+            horas_trab   = round(max(0.0, horas_manha) + max(0.0, horas_tarde), 2)
+            horas_normais = min(horas_trab, 8.0)
+            horas_extras  = round(max(0.0, horas_trab - 8.0), 2)
+            _dado_reg = {
+                "Data": data_reg, "Funcionário": func_reg, "Obra": obra_reg,
+                "Entrada": entrada_reg.strftime("%H:%M"),
+                "Saída Almoço": said_alm_reg.strftime("%H:%M"),
+                "Retorno Almoço": ret_alm_reg.strftime("%H:%M"),
+                "Saída": saida_reg.strftime("%H:%M"),
+                "Horas Normais": horas_normais, "Horas Extras": horas_extras,
+                "Observação": obs_reg,
+            }
+            _uuid_reg = sync.ponto_registro_save(_dado_reg, _obra_uuid(obra_reg) if _obra_valida(obra_reg) else None)
+            st.session_state.ponto_registros = pd.concat([
+                st.session_state.ponto_registros,
+                pd.DataFrame([{"ID": _next_id(st.session_state.ponto_registros),
+                               "SB_ID": _uuid_reg or "", **_dado_reg}])
+            ], ignore_index=True)
+            _notify(f"Ponto de **{func_reg}** em {data_reg} registrado: "
+                    f"{horas_normais:.1f}h normais" + (f" + {horas_extras:.1f}h extras" if horas_extras > 0 else "") + "."); st.rerun()
 
     with t3:
         if not _pode(["folha"]):
@@ -2181,25 +2292,60 @@ def pagina_qualidade():
         if fo_nc != "Todas": ncs = ncs[ncs["Obra"]==fo_nc]
         if fs_nc != "Todos": ncs = ncs[ncs["Status"]==fs_nc]
         bdg_nc = {"Aberta":"🔴","Em tratamento":"🟡","Encerrada":"🟢"}
+        grv_nc = {"Alta":"🔴","Moderada":"🟡","Baixa":"🟢"}
+        LNC = None
+        if not ncs.empty:
+            colunas_nc = ["Obra","Descrição","Gravidade","Status","Responsável","Prazo"]
+            colunas_nc = [c for c in colunas_nc if c in ncs.columns]
+            LNC = _tabela_clicavel(
+                ncs, colunas_exibir=colunas_nc, key="tbl_nc",
+                formatters={
+                    "Gravidade": lambda g: f"{grv_nc.get(g,'⚪')} {g}",
+                    "Status": lambda s: f"{bdg_nc.get(s,'⚪')} {s}",
+                },
+            )
         ex_nc = ncs.copy()
-        ex_nc["Gravidade"] = ex_nc["Gravidade"].apply(lambda g:("🔴 " if g=="Alta" else "🟡 " if g=="Moderada" else "🟢 ")+g)
-        ex_nc["Status"]    = ex_nc["Status"].apply(lambda s:f"{bdg_nc.get(s,'⚪')} {s}")
-        st.dataframe(ex_nc,width='stretch',hide_index=True)
+        if not ex_nc.empty:
+            ex_nc["Gravidade"] = ex_nc["Gravidade"].apply(lambda g:("🔴 " if g=="Alta" else "🟡 " if g=="Moderada" else "🟢 ")+g)
+            ex_nc["Status"]    = ex_nc["Status"].apply(lambda s:f"{bdg_nc.get(s,'⚪')} {s}")
         st.download_button("⬇️ Exportar Excel", data=_export_excel(ex_nc), file_name="nao_conformidades.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            key="btn_xls_nc")
-        st.markdown("---")
-        st.subheader("Atualizar Status")
-        opc_nc = {f"{r.ID} — {r.Obra}":r.ID for r in st.session_state.ncs.itertuples()}
-        if not opc_nc:
+        if st.button("📥 Gerar Relatório de NCs em PDF", key="btn_gerar_nc_pdf"):
+            try:
+                from gerar_pdf import gerar_relatorio_nc as _gerar_nc
+                ncs_pdf = [{
+                    "id": r["ID"], "data_abertura": r["Data Abertura"], "obra": r["Obra"],
+                    "gravidade": r["Gravidade"], "descricao": r["Descrição"],
+                    "acao_corretiva": r["Ação Corretiva"], "responsavel": r["Responsável"],
+                    "prazo": r["Prazo"], "status": r["Status"],
+                } for _, r in ncs.iterrows()]
+                pdf_bytes = _gerar_nc({"obra": fo_nc, "status": fs_nc}, ncs_pdf)
+                st.download_button(
+                    label="⬇️ Baixar Relatório de NCs em PDF",
+                    data=pdf_bytes,
+                    file_name=f"relatorio_ncs_{date.today().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf",
+                    key="dl_nc_pdf",
+                )
+            except Exception as _e_nc:
+                st.error(f"Erro ao gerar PDF: {_e_nc}")
+        if ncs.empty:
             st.info("Nenhuma NC registrada.")
-        else:
-            sel_nc = st.selectbox("NC",list(opc_nc.keys()))
-            ns_nc  = st.selectbox("Novo Status",["Aberta","Em tratamento","Encerrada"],key="ns_nc")
-            if st.button("✅ Atualizar NC",type="primary"):
-                ix_nc = st.session_state.ncs[st.session_state.ncs["ID"]==opc_nc[sel_nc]].index[0]
-                st.session_state.ncs.loc[ix_nc,"Status"]=ns_nc
-                _notify(f"✅ **{sel_nc}** atualizada para status **{ns_nc}**!"); st.rerun()
+        elif LNC is not None:
+            id_nc = LNC["ID"]
+            st.markdown("---")
+            with st.container(border=True):
+                st.markdown(f"#### ✏️ NC — {LNC['Obra']}")
+                st.caption(LNC.get("Descrição", ""))
+                st_opts_nc = ["Aberta","Em tratamento","Encerrada"]
+                ns_nc = st.selectbox("Novo Status", st_opts_nc,
+                                      index=st_opts_nc.index(LNC["Status"]) if LNC["Status"] in st_opts_nc else 0,
+                                      key="ns_nc")
+                if st.button("✅ Atualizar NC", type="primary"):
+                    ix_nc = st.session_state.ncs[st.session_state.ncs["ID"]==id_nc].index[0]
+                    st.session_state.ncs.loc[ix_nc,"Status"]=ns_nc
+                    _notify(f"✅ NC de **{LNC['Obra']}** atualizada para status **{ns_nc}**!"); st.rerun()
 
     with t3:
         with st.form("form_chk"):
@@ -2463,6 +2609,31 @@ def _exibir_orcamento_processado(resultado, obra_orc, bdi_pct, nome_orc):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         st.caption("Estrutura compatível com a tabela `orcamento_itens` do schema Supabase/Postgres.")
+
+        st.markdown("---")
+        if st.button("📥 Gerar PDF do Orçamento", key="btn_gerar_orc_pdf", type="primary"):
+            try:
+                from gerar_pdf import gerar_orcamento as _gerar_orc
+                ob_row = st.session_state.obras[st.session_state.obras["Nome"] == obra_orc]
+                cliente_orc = ob_row["Cliente"].iloc[0] if not ob_row.empty else "—"
+                dados_orc_pdf = {
+                    "obra": obra_orc, "cliente": cliente_orc, "nome": nome_orc,
+                    "base_ref": st.session_state.get("orc_base", "—"),
+                    "versao":   st.session_state.get("orc_versao", 1),
+                    "status":   st.session_state.get("orc_status", "Rascunho"),
+                    "bdi_pct":  bdi_pct if bdi_pct else (total_venda - total_custo) / total_custo * 100 if total_custo else 0,
+                    "total_custo": total_custo, "total_venda": total_venda,
+                }
+                pdf_bytes = _gerar_orc(dados_orc_pdf, resultado)
+                st.download_button(
+                    label="⬇️ Baixar Orçamento em PDF",
+                    data=pdf_bytes,
+                    file_name=f"orcamento_{(obra_orc or 'sem_obra').replace(' ','_')}_{(nome_orc or 'orc').replace(' ','_')}.pdf",
+                    mime="application/pdf",
+                    key="dl_orc_pdf",
+                )
+            except Exception as _e_orc:
+                st.error(f"Erro ao gerar PDF: {_e_orc}")
 
 
 # ── Página Orçamento ──────────────────────────────────────────────────────────
@@ -3533,7 +3704,7 @@ def _apply_css():
     # Concrete   #A0A8B0  — texto secundário
     # Background #F4F6F8  — fundo do app
     st.markdown("""<style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
 
         /* ── Global ── */
         html, body, [class*="css"], [class*="st-"] {
@@ -3548,30 +3719,59 @@ def _apply_css():
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
         header { visibility: hidden; }
-        /* Botao colapsar sidebar — especificidade html+attr (0,1,1) vence [class*="st-"] (0,1,0) */
-        html [data-testid="stBaseButton-headerNoPadding"] {
-            visibility: visible !important;
+        /* Icones Material Symbols (sidebar, expanders, uploads etc.) — o span interno
+           [data-testid="stIconMaterial"] tem classe "st-emotion-cache-xxx" que casa com
+           [class*="st-"] acima; mirar so o botao pai nao bastava porque o span filho
+           casava com a mesma regra global e vencia por estar mais proximo do elemento.
+           especificidade html+attr (0,1,1) vence [class*="st-"] (0,1,0). */
+        html [data-testid="stIconMaterial"] {
             font-family: 'Material Symbols Rounded' !important;
             font-feature-settings: 'liga' 1 !important;
             -webkit-font-feature-settings: 'liga' 1 !important;
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
         }
+        html [data-testid="stBaseButton-headerNoPadding"] {
+            visibility: visible !important;
+        }
+        /* Cor padrao do icone (cinza 60%) fica quase invisivel no fundo navy da sidebar */
+        html [data-testid="stBaseButton-headerNoPadding"] [data-testid="stIconMaterial"] {
+            color: rgba(255,255,255,0.85) !important;
+        }
+        /* Botao de REABRIR a sidebar quando colapsada — fica dentro do <header>,
+           que escondemos globalmente (header{visibility:hidden}); sem isso, depois
+           de colapsar a sidebar nao ha como abri-la de novo. */
+        html [data-testid="stExpandSidebarButton"] {
+            visibility: visible !important;
+            position: fixed !important;
+            top: 12px !important;
+            left: 12px !important;
+            z-index: 999999 !important;
+        }
+        html [data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"] {
+            color: #1B3A5E !important;
+        }
 
-        /* ── Títulos ── */
+        /* ── Títulos — Space Grotesk para hierarquia visual distinta do corpo/dados ── */
+        h1, h2, h3, h4,
+        [data-testid="stMetricValue"],
+        .prumo-brand {
+            font-family: 'Space Grotesk', 'Inter', sans-serif !important;
+        }
         h1 {
             color: #1B3A5E !important;
-            font-weight: 800 !important;
-            font-size: 1.55rem !important;
-            letter-spacing: -0.3px;
-            margin-bottom: 1.2rem !important;
+            font-weight: 700 !important;
+            font-size: 1.6rem !important;
+            letter-spacing: -0.4px;
+            margin-bottom: 1.3rem !important;
         }
-        h2, h3 { color: #1B3A5E !important; font-weight: 700 !important; }
+        h2, h3 { color: #1B3A5E !important; font-weight: 600 !important; letter-spacing: -0.2px; }
+        h4 { color: #1B3A5E !important; font-weight: 600 !important; font-size: 1.05rem !important; }
 
         /* ── Métricas ── */
         [data-testid="stMetric"] {
             background: #FFFFFF;
             border: none;
-            border-radius: 10px;
+            border-radius: 12px;
             padding: 20px !important;
             box-shadow: 0 2px 10px rgba(27,58,94,0.08);
             border-left: 4px solid #2AACA0;
@@ -3581,6 +3781,7 @@ def _apply_css():
             box-shadow: 0 6px 20px rgba(42,172,160,0.15);
             transform: translateY(-2px);
         }
+        [data-testid="stMetricValue"] { letter-spacing: -0.3px; }
         [data-testid="stMetric"] label {
             color: #A0A8B0 !important;
             font-size: 10px !important;
@@ -3667,6 +3868,7 @@ def _apply_css():
         }
 
 
+
         /* ── File uploader — substitui texto do botao por CSS (Chrome nao traduz content:) ── */
         [data-testid="stFileUploaderDropzone"] input[type="file"]::-webkit-file-upload-button,
         [data-testid="stFileUploaderDropzone"] input[type="file"]::file-selector-button {
@@ -3707,31 +3909,33 @@ def _apply_css():
         section[data-testid="stSidebar"] > div:first-child {
             background: #1B3A5E !important;
         }
+        /* Itens do menu — transparentes por padrão (sem caixa/borda), só um leve
+           realce no hover e um tom sutil no item ativo (referência: MBR_ERP_Prototipo.html) */
         section[data-testid="stSidebar"] button[kind="secondary"] {
-            background-color: rgba(255,255,255,0.04) !important;
-            border: 1px solid rgba(255,255,255,0.08) !important;
-            color: #A0B4C8 !important;
-            border-radius: 8px !important;
+            background: transparent !important;
+            border: none !important;
+            color: rgba(255,255,255,0.88) !important;
+            border-radius: 7px !important;
             font-size: 13px !important;
             font-weight: 500 !important;
-            transition: all 0.2s !important;
+            transition: all 0.15s !important;
         }
         section[data-testid="stSidebar"] button[kind="secondary"]:hover {
-            background-color: rgba(42,172,160,0.18) !important;
-            border-color: rgba(42,172,160,0.5) !important;
-            color: #2AACA0 !important;
+            background: rgba(255,255,255,0.08) !important;
+            color: #FFFFFF !important;
         }
         section[data-testid="stSidebar"] button[kind="primary"] {
-            background: #2AACA0 !important;
+            background: rgba(42,172,160,0.18) !important;
             border: none !important;
-            color: #FFFFFF !important;
-            border-radius: 8px !important;
-            font-weight: 700 !important;
+            color: #2AACA0 !important;
+            border-radius: 7px !important;
+            font-weight: 600 !important;
+            box-shadow: none !important;
         }
         section[data-testid="stSidebar"] .stMarkdown p,
         section[data-testid="stSidebar"] .stMarkdown span,
         section[data-testid="stSidebar"] caption {
-            color: #7A9AB8 !important;
+            color: #B9C6D6 !important;
             font-size: 12px !important;
         }
         hr { border-color: rgba(255,255,255,0.08) !important; }
@@ -3762,10 +3966,10 @@ def app():
     st.sidebar.markdown(
         f"""<div style='padding:20px 14px 16px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:6px;'>
             <div style='margin-bottom:16px;'>
-                <div style='font-size:20px;font-weight:900;color:#FFFFFF;letter-spacing:-0.5px;line-height:1;'>
-                    PRUMO<span style='font-size:11px;font-weight:700;color:#2AACA0;margin-left:3px;vertical-align:super;'>ERP</span>
+                <div class='prumo-brand' style='font-size:21px;font-weight:700;color:#FFFFFF;letter-spacing:-0.5px;line-height:1;'>
+                    PRUMO<span style='font-size:11px;font-weight:600;color:#2AACA0;margin-left:3px;vertical-align:super;'>ERP</span>
                 </div>
-                <div style='font-size:9px;color:#7A9AB8;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;margin-top:4px;'>Software de Construção Civil</div>
+                <div style='font-size:9px;color:#B9C6D6;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;margin-top:4px;'>Software de Construção Civil</div>
                 <div style='width:28px;height:2px;background:#2AACA0;border-radius:1px;margin-top:8px;'></div>
             </div>
             <div style='display:flex;align-items:center;gap:9px;background:rgba(255,255,255,0.05);

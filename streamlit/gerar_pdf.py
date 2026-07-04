@@ -1025,3 +1025,343 @@ def gerar_relatorio_gerencial(dados: dict) -> bytes:
 
     doc.build(story)
     return buf.getvalue()
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# ORÇAMENTO
+# ════════════════════════════════════════════════════════════════════════════════
+
+def gerar_orcamento(dados: dict, resultado: list) -> bytes:
+    """
+    Gera PDF do Orçamento (capa + tabela de itens por etapa + totais com BDI).
+
+    dados (obrigatórios):
+        obra, nome, base_ref, bdi_pct, total_custo, total_venda
+
+    dados (opcionais):
+        cliente, contratada (default "MBR ENGENHARIA LTDA"), versao, status
+
+    resultado: lista de dicts (saída de _processar_planilha_orcamento), cada item com
+        tipo ("ETAPA" ou "ITEM"), ordem, nivel, descricao, unidade, quantidade,
+        preco_custo, preco_venda, total_custo, total_venda
+    """
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=1.2*cm, rightMargin=1.2*cm,
+        topMargin=1.5*cm,  bottomMargin=1.5*cm,
+    )
+    st = _estilos()
+    hoje = date.today().strftime("%d/%m/%Y")
+    w = landscape(A4)[0] - 2.4*cm
+
+    obra        = dados.get("obra",        "—")
+    cliente     = dados.get("cliente",     "—")
+    contratada  = dados.get("contratada",  "MBR ENGENHARIA LTDA")
+    nome_orc    = dados.get("nome",        "Orçamento")
+    base_ref    = dados.get("base_ref",    "—")
+    versao      = dados.get("versao",      1)
+    status_orc  = dados.get("status",      "Rascunho")
+    bdi_pct     = float(dados.get("bdi_pct", 0) or 0)
+    total_custo = float(dados.get("total_custo", 0) or 0)
+    total_venda = float(dados.get("total_venda", 0) or 0)
+    bdi_val     = total_venda - total_custo
+
+    story = []
+
+    def _cabecalho():
+        cab_top = Table(
+            [[
+                Paragraph(contratada, st["empresa"]),
+                Paragraph(f"ORÇAMENTO — {nome_orc}", st["titulo"]),
+                Paragraph(f"Emissão: {hoje}", st["cab_label"]),
+            ]],
+            colWidths=[w*0.28, w*0.44, w*0.28],
+        )
+        cab_top.setStyle(TableStyle([
+            ("VALIGN",     (0,0), (-1,-1), "MIDDLE"),
+            ("ALIGN",      (2,0), (2,0),   "RIGHT"),
+            ("BOTTOMPADDING",(0,0),(-1,-1),4),
+        ]))
+        story.append(cab_top)
+        story.append(HRFlowable(width="100%", thickness=2, color=AZUL, spaceAfter=4))
+
+        campos = [
+            ("OBRA",               obra),
+            ("CLIENTE",            cliente),
+            ("BASE DE REFERÊNCIA", base_ref),
+            ("VERSÃO",             f"Rev. {versao}"),
+            ("STATUS",             status_orc),
+        ]
+        col_w = w / len(campos)
+        row_labels = [Paragraph(k, st["cab_label"]) for k, _ in campos]
+        row_vals   = [Paragraph(str(v), st["cab_val"]) for _, v in campos]
+        cab_info = Table([row_labels, row_vals], colWidths=[col_w]*len(campos))
+        cab_info.setStyle(TableStyle([
+            ("BACKGROUND",  (0,0), (-1,0),  CINZA_CAB),
+            ("GRID",        (0,0), (-1,-1), 0.3, BORDA),
+            ("TOPPADDING",  (0,0), (-1,-1), 3),
+            ("BOTTOMPADDING",(0,0),(-1,-1), 3),
+            ("LEFTPADDING", (0,0), (-1,-1), 4),
+        ]))
+        story.append(cab_info)
+        story.append(Spacer(1, 4*mm))
+
+    _cabecalho()
+
+    _tabela_orcamento(story, st, w, resultado)
+
+    story.append(Spacer(1, 3*mm))
+
+    totais_data = [[
+        Paragraph("TOTAL CUSTO DIRETO",   st["total_l"]),
+        Paragraph(_fmt_brl(total_custo),  st["total_v"]),
+        Paragraph(f"BDI ({bdi_pct:.1f}%)", st["total_l"]),
+        Paragraph(_fmt_brl(bdi_val),      st["total_v"]),
+        Paragraph("TOTAL VENDA",          st["total_l"]),
+        Paragraph(_fmt_brl(total_venda),  st["total_v"]),
+    ]]
+    totais_box = Table(totais_data, colWidths=[w*0.18, w*0.15, w*0.14, w*0.15, w*0.18, w*0.20])
+    totais_box.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0), (-1,-1), CINZA_CAB),
+        ("BOX",          (0,0), (-1,-1), 1.5, AZUL),
+        ("INNERGRID",    (0,0), (-1,-1), 0.3, BORDA),
+        ("TOPPADDING",   (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 6),
+        ("ALIGN",        (0,0), (-1,-1), "CENTER"),
+    ]))
+    story.append(totais_box)
+
+    story.append(Spacer(1, 10*mm))
+    assin_data = [[
+        Paragraph("____________________________\nElaborado por",             st["assin"]),
+        Paragraph("____________________________\nAprovado por (Cliente)",    st["assin"]),
+        Paragraph("____________________________\nResponsável Técnico",       st["assin"]),
+    ]]
+    assin_t = Table(assin_data, colWidths=[w/3]*3)
+    assin_t.setStyle(TableStyle([
+        ("ALIGN",       (0,0), (-1,-1), "CENTER"),
+        ("VALIGN",      (0,0), (-1,-1), "TOP"),
+        ("TOPPADDING",  (0,0), (-1,-1), 8),
+    ]))
+    story.append(assin_t)
+
+    story.append(Spacer(1, 4*mm))
+    story.append(Paragraph(
+        f"MBR Engenharia Ltda — Orçamento {nome_orc} — Obra: {obra} — "
+        f"Gerado em {hoje} pelo ERP MBR",
+        st["rodape"]
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+def _tabela_orcamento(story, st, w, resultado):
+    """Tabela hierárquica do orçamento: etapas como cabeçalho de seção, itens abaixo."""
+    cws = [
+        w*0.06,   # Cód
+        w*0.42,   # Descrição
+        w*0.06,   # Un
+        w*0.10,   # Qtd
+        w*0.12,   # P.Unit (c/ BDI)
+        w*0.14,   # Total (c/ BDI)
+        w*0.10,   # % do total
+    ]
+    P = Paragraph
+
+    header = [
+        P("CÓD", st["th_sub"]), P("DESCRIÇÃO", st["th_sub"]), P("UN", st["th_sub"]),
+        P("QUANT.", st["th_sub"]), P("PR. UNIT.\nC/ BDI", st["th_sub"]),
+        P("TOTAL\nC/ BDI", st["th_sub"]), P("% DO\nTOTAL", st["th_sub"]),
+    ]
+    data = [header]
+    row_kinds = ["header"]
+
+    total_geral = sum(float(r.get("total_venda") or 0) for r in resultado if r.get("tipo") == "ITEM")
+
+    for r in resultado:
+        if r.get("tipo") == "ETAPA":
+            pad = "　" * max(0, r.get("nivel", 1) - 1)
+            data.append([
+                P(str(r.get("ordem") or ""), st["th_sub"]),
+                P(pad + str(r.get("descricao") or ""), st["th_sub"]),
+                "", "", "", "", "",
+            ])
+            row_kinds.append("etapa")
+        else:
+            pct_item = (float(r.get("total_venda") or 0) / total_geral * 100) if total_geral else 0
+            data.append([
+                P(str(r.get("ordem") or ""), st["td_c"]),
+                P(str(r.get("descricao") or ""), st["td"]),
+                P(str(r.get("unidade") or ""), st["td_c"]),
+                P(_num(r.get("quantidade")), st["td_r"]),
+                P(_num(r.get("preco_venda")), st["td_r"]),
+                P(_num(r.get("total_venda")), st["td_r"]),
+                P(_pct(pct_item), st["td_c"]),
+            ])
+            row_kinds.append("item")
+
+    data.append([
+        P("TOTAL GERAL", st["th_sub"]), "", "", "", "",
+        P(_num(total_geral), st["th_sub"]), P("100,00%", st["th_sub"]),
+    ])
+    row_kinds.append("total")
+
+    tbl = Table(data, colWidths=cws, repeatRows=1)
+
+    style = [
+        ("BACKGROUND",  (0,0), (-1,0), AZUL_ESC),
+        ("TEXTCOLOR",   (0,0), (-1,0), BRANCO),
+        ("SPAN",        (0, len(data)-1), (4, len(data)-1)),
+        ("GRID",        (0,0), (-1,-1), 0.3, BORDA),
+        ("VALIGN",      (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING",  (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 3),
+        ("LEFTPADDING", (0,0), (-1,-1), 3),
+    ]
+    for i, kind in enumerate(row_kinds):
+        if kind == "etapa":
+            style.append(("SPAN",       (0,i), (1,i)))
+            style.append(("SPAN",       (2,i), (6,i)))
+            style.append(("BACKGROUND", (0,i), (-1,i), CINZA_CAB))
+            style.append(("FONTNAME",   (0,i), (-1,i), "Helvetica-Bold"))
+        elif kind == "total":
+            style.append(("BACKGROUND", (0,i), (-1,i), CINZA_CAB))
+            style.append(("FONTNAME",   (0,i), (-1,i), "Helvetica-Bold"))
+        elif kind == "item" and i % 2 == 0:
+            style.append(("BACKGROUND", (0,i), (-1,i), CINZA_LIN))
+
+    tbl.setStyle(TableStyle(style))
+    story.append(tbl)
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# RELATÓRIO DE NÃO-CONFORMIDADES
+# ════════════════════════════════════════════════════════════════════════════════
+
+def gerar_relatorio_nc(dados: dict, ncs: list) -> bytes:
+    """
+    Gera PDF do Relatório de Não-Conformidades.
+
+    dados (opcionais):
+        obra (filtro aplicado, ou "Todas"), status (filtro aplicado, ou "Todos"), contratada
+
+    ncs: lista de dicts, cada um com chaves
+        id, data_abertura, obra, descricao, gravidade, responsavel, status, prazo, acao_corretiva
+    """
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=1.2*cm, rightMargin=1.2*cm,
+        topMargin=1.5*cm,  bottomMargin=1.5*cm,
+    )
+    st = _estilos()
+    hoje = date.today().strftime("%d/%m/%Y")
+    w = landscape(A4)[0] - 2.4*cm
+
+    contratada    = dados.get("contratada", "MBR ENGENHARIA LTDA")
+    filtro_obra   = dados.get("obra",   "Todas")
+    filtro_status = dados.get("status", "Todos")
+
+    story = []
+
+    cab_top = Table(
+        [[
+            Paragraph(contratada, st["empresa"]),
+            Paragraph("RELATÓRIO DE NÃO-CONFORMIDADES", st["titulo"]),
+            Paragraph(f"Emissão: {hoje}", st["cab_label"]),
+        ]],
+        colWidths=[w*0.28, w*0.44, w*0.28],
+    )
+    cab_top.setStyle(TableStyle([
+        ("VALIGN",     (0,0), (-1,-1), "MIDDLE"),
+        ("ALIGN",      (2,0), (2,0),   "RIGHT"),
+        ("BOTTOMPADDING",(0,0),(-1,-1),4),
+    ]))
+    story.append(cab_top)
+    story.append(HRFlowable(width="100%", thickness=2, color=AZUL, spaceAfter=4))
+    story.append(Paragraph(
+        f"Filtros aplicados — Obra: <b>{filtro_obra}</b> &nbsp;·&nbsp; Status: <b>{filtro_status}</b>",
+        st["cab_label"]
+    ))
+    story.append(Spacer(1, 3*mm))
+
+    n_alta   = sum(1 for n in ncs if n.get("gravidade") == "Alta")
+    n_aberta = sum(1 for n in ncs if n.get("status") == "Aberta")
+    resumo = Table(
+        [[
+            Paragraph(f"<b>{len(ncs)}</b>  Total de NCs", st["cab_val"]),
+            Paragraph(f"<b>{n_alta}</b>  Gravidade Alta",  st["cab_val"]),
+            Paragraph(f"<b>{n_aberta}</b>  Em Aberto",     st["cab_val"]),
+        ]],
+        colWidths=[w/3]*3,
+    )
+    resumo.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0), (-1,-1), CINZA_CAB),
+        ("GRID",         (0,0), (-1,-1), 0.3, BORDA),
+        ("ALIGN",        (0,0), (-1,-1), "CENTER"),
+        ("TOPPADDING",   (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 6),
+    ]))
+    story.append(resumo)
+    story.append(Spacer(1, 4*mm))
+
+    cws = [
+        w*0.06,   # ID
+        w*0.07,   # Abertura
+        w*0.13,   # Obra
+        w*0.07,   # Gravidade
+        w*0.24,   # Descrição
+        w*0.20,   # Ação Corretiva
+        w*0.10,   # Responsável
+        w*0.06,   # Prazo
+        w*0.07,   # Status
+    ]
+    P = Paragraph
+    header = [
+        P("ID", st["th_sub"]), P("ABERTURA", st["th_sub"]), P("OBRA", st["th_sub"]),
+        P("GRAVIDADE", st["th_sub"]), P("DESCRIÇÃO", st["th_sub"]), P("AÇÃO CORRETIVA", st["th_sub"]),
+        P("RESPONSÁVEL", st["th_sub"]), P("PRAZO", st["th_sub"]), P("STATUS", st["th_sub"]),
+    ]
+    data = [header]
+    for n in ncs:
+        data.append([
+            P(str(n.get("id") or ""),             st["td_c"]),
+            P(str(n.get("data_abertura") or ""),  st["td_c"]),
+            P(str(n.get("obra") or ""),           st["td"]),
+            P(str(n.get("gravidade") or ""),      st["td_c"]),
+            P(str(n.get("descricao") or ""),      st["td"]),
+            P(str(n.get("acao_corretiva") or ""), st["td"]),
+            P(str(n.get("responsavel") or ""),    st["td"]),
+            P(str(n.get("prazo") or ""),          st["td_c"]),
+            P(str(n.get("status") or ""),         st["td_c"]),
+        ])
+
+    tbl = Table(data, colWidths=cws, repeatRows=1)
+    style = [
+        ("BACKGROUND",  (0,0), (-1,0), AZUL_ESC),
+        ("TEXTCOLOR",   (0,0), (-1,0), BRANCO),
+        ("GRID",        (0,0), (-1,-1), 0.3, BORDA),
+        ("VALIGN",      (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING",  (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 3),
+        ("LEFTPADDING", (0,0), (-1,-1), 3),
+    ]
+    for i in range(1, len(data)):
+        if i % 2 == 0:
+            style.append(("BACKGROUND", (0,i), (-1,i), CINZA_LIN))
+    tbl.setStyle(TableStyle(style))
+    story.append(tbl)
+
+    story.append(Spacer(1, 6*mm))
+    story.append(Paragraph(
+        f"MBR Engenharia Ltda — Relatório de Não-Conformidades — {len(ncs)} registro(s) — "
+        f"Gerado em {hoje} pelo ERP MBR",
+        st["rodape"]
+    ))
+
+    doc.build(story)
+    return buf.getvalue()

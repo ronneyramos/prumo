@@ -527,6 +527,75 @@ def falta_save(dados: dict, obra_sb_id: str | None = None) -> str | None:
         return None
 
 
+_PONTO_REGISTRO_COLS = ["ID","SB_ID","Data","Funcionário","Obra","Entrada","Saída Almoço",
+                         "Retorno Almoço","Saída","Horas Normais","Horas Extras","Observação"]
+
+
+def ponto_registro_load() -> pd.DataFrame:
+    """Carrega registros de ponto com horário batido (falta=False)."""
+    empty = pd.DataFrame(columns=_PONTO_REGISTRO_COLS)
+    try:
+        from db import sb as _sb
+        res = _sb().table("ponto").select("*, colaboradores(nome), obras(nome)")\
+                   .eq("falta", False).order("data", desc=True).execute()
+        if not res.data:
+            return empty
+
+        rows = []
+        for i, row in enumerate(res.data, start=1):
+            col_n  = (row.get("colaboradores") or {}).get("nome", "")
+            obra_n = (row.get("obras") or {}).get("nome", "")
+            rows.append({
+                "ID":              i,
+                "SB_ID":           row.get("id", ""),
+                "Data":            _iso_to_br(row.get("data", "")),
+                "Funcionário":     col_n,
+                "Obra":            obra_n,
+                "Entrada":         (row.get("entrada") or "")[:5],
+                "Saída Almoço":    (row.get("saida_almoco") or "")[:5],
+                "Retorno Almoço":  (row.get("retorno_almoco") or "")[:5],
+                "Saída":           (row.get("saida") or "")[:5],
+                "Horas Normais":   row.get("horas_normais") or 0,
+                "Horas Extras":    row.get("horas_extras") or 0,
+                "Observação":      row.get("observacao") or "",
+            })
+        return pd.DataFrame(rows)
+    except Exception:
+        print("[sync.ponto_registro_load] ERRO:\n", traceback.format_exc())
+        return empty
+
+
+def ponto_registro_save(dados: dict, obra_sb_id: str | None = None) -> str | None:
+    """Registra o ponto batido do dia (entrada/almoço/saída) de um colaborador. Retorna UUID ou None."""
+    try:
+        from db import sb as _sb
+        func_nome = dados.get("Funcionário", "")
+        col_id = _colaborador_uuid_por_nome(func_nome)
+        if not col_id:
+            print(f"[sync.ponto_registro_save] Colaborador não encontrado: {func_nome}")
+            return None
+
+        payload = {
+            "colaborador_id":  col_id,
+            "obra_id":         obra_sb_id,
+            "data":            _br_to_iso(dados.get("Data")) or datetime.now().strftime("%Y-%m-%d"),
+            "entrada":         dados.get("Entrada") or None,
+            "saida_almoco":    dados.get("Saída Almoço") or None,
+            "retorno_almoco":  dados.get("Retorno Almoço") or None,
+            "saida":           dados.get("Saída") or None,
+            "horas_normais":   dados.get("Horas Normais"),
+            "horas_extras":    dados.get("Horas Extras"),
+            "falta":           False,
+            "observacao":      dados.get("Observação", "") or "",
+            "empresa_id":      _empresa_id(),
+        }
+        res = _sb().table("ponto").upsert(payload, on_conflict="colaborador_id,data").execute()
+        return (res.data[0] if res.data else {}).get("id")
+    except Exception:
+        print("[sync.ponto_registro_save] ERRO:\n", traceback.format_exc())
+        return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ESTOQUE / INSUMOS
 # ─────────────────────────────────────────────────────────────────────────────
