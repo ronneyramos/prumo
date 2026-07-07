@@ -1,11 +1,17 @@
-# Credenciais — NUNCA subir para o GitHub
-streamlit/.env
+# ── Credenciais — NUNCA subir para o GitHub ──────────────────
 .env
+.env.*
+*.env
+streamlit/.env
+**/secrets.toml
+**/secrets.*.toml
 
-# Ferramentas de desenvolvimento (não necessário no deploy)
+# ── Ferramentas de desenvolvimento ──────────────────────────
 streamlit/.agents/
+.agents/
+skills-lock.json
 
-# Python
+# ── Python ──────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
@@ -13,14 +19,29 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+*.egg
+*.whl
+*.db
+*.sqlite3
 
-# Streamlit
-.streamlit/secrets.toml
+# ── Streamlit ───────────────────────────────────────────────
+.streamlit/
+**/.streamlit/
 
-# IDEs
+# ── IDEs ────────────────────────────────────────────────────
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-# Sistema
+# ── Sistema ─────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+*.log
+node_modules/
+
+# ── Temporários ─────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig
