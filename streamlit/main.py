@@ -580,6 +580,28 @@ def _pode(modulos: list) -> bool:
     return any(m in permitidos for m in modulos)
 
 
+def _plano_info() -> dict:
+    """Retorna dicionário com plano da empresa atual."""
+    eid = st.session_state.get("empresa_id")
+    if not eid:
+        return {"plano_slug": "pro", "max_obras": 999, "max_usuarios": 999, "modulos": []}
+    from db import sb
+    try:
+        res = sb().table("empresa_limites").select("*").eq("empresa_id", eid).execute()
+        if res.data:
+            return res.data[0]
+    except Exception:
+        pass
+    return {"plano_slug": "pro", "max_obras": 999, "max_usuarios": 999, "modulos": []}
+
+def _limite_obras_atingido() -> bool:
+    info = _plano_info()
+    max_o = info.get("max_obras", 999)
+    if max_o >= 999:
+        return False
+    qtd = len(st.session_state.obras) if not st.session_state.obras.empty else 0
+    return qtd >= max_o
+
 def _obras_filtradas(df_obras: pd.DataFrame) -> pd.DataFrame:
     """Retorna só as obras que o usuário pode ver (filtra por usuario_obras_ids quando não é admin/financeiro)."""
     if _role() in ("admin", "financeiro", "visualizador"):
@@ -603,7 +625,7 @@ def pagina_admin():
     _init()
     st.title("⚙️ Administração")
 
-    tabs = st.tabs(["👥 Usuários", "🏢 Empresas"])
+    tabs = st.tabs(["👥 Usuários", "🏢 Empresas", "💳 Assinatura"])
 
     # ===== TAB 1: USUÁRIOS =====================================================
     with tabs[0]:
@@ -777,6 +799,43 @@ def pagina_admin():
                             sb().table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
                             st.error(f"Empresa {row.get('nome')} bloqueada!")
                             st.rerun()
+
+    # ===== TAB 3: ASSINATURA ==================================================
+    with tabs[2]:
+        _init()
+        info = _plano_info()
+        planos = []
+        try:
+            p_res = sb().table("planos").select("*").order("preco_mensal").execute()
+            planos = p_res.data or []
+        except Exception:
+            pass
+        slug_atual = info.get("plano_slug", "pro")
+        st.subheader(f"Plano atual: **{slug_atual.title()}**")
+
+        col_planos = st.columns(len(planos) if planos else 1)
+        for i, p in enumerate(planos):
+            with col_planos[i]:
+                ativo = p["slug"] == slug_atual
+                borda = "2px solid #059669" if ativo else "1px solid #D1D5DB"
+                com_atual = "✅ Atual" if ativo else ""
+                st.markdown(f"""
+                <div style='border:{borda};border-radius:12px;padding:20px;text-align:center;background:{"#F0FDF4" if ativo else "#FAFAFA"};'>
+                    <h3 style='margin:0 0 4px;'>{p['nome']}</h3>
+                    <p style='font-size:24px;font-weight:900;margin:8px 0;'>R$ {float(p['preco_mensal']):,.0f}<span style='font-size:14px;font-weight:400;color:#6B7280;'>/mês</span></p>
+                    <p style='font-size:13px;color:#6B7280;margin:0 0 12px;'>ou R$ {float(p['preco_anual']):,.0f}/ano</p>
+                    <p style='font-size:13px;margin:4px 0;'>📋 {p.get('max_obras','∞')} obras · 👥 {p.get('max_usuarios','∞')} usuários</p>
+                    <p style='font-size:12px;color:#6B7280;margin:12px 0;'>{com_atual}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if not ativo:
+                    if st.button(f"Alterar para {p['nome']}", key=f"plan_{p['slug']}", use_container_width=True):
+                        try:
+                            sb().table("empresas").update({"plan_id": p["id"]}).eq("id", st.session_state.empresa_id).execute()
+                            st.success(f"Plano alterado para {p['nome']}!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
 
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
@@ -1469,6 +1528,10 @@ def pagina_obras():
                            + (f"Conta a Receber de **{_fmt(valor_med)}** gerada." if valor_med > 0 else ""))
                 st.rerun()
     else:
+        if _limite_obras_atingido():
+            info = _plano_info()
+            st.warning(f"🚫 Seu plano **{info.get('plano_slug','').title()}** permite no máximo **{info.get('max_obras')} obra(s)**. "
+                       f"Faça upgrade para cadastrar mais.")
         with st.form("form_nova_obra"):
             c1,c2 = st.columns(2)
             nome   = c1.text_input("Nome *")
@@ -1488,7 +1551,10 @@ def pagina_obras():
             stat   = c2.selectbox("Status",["Planejamento","Em andamento","Paralisada","Concluída","Cancelada"])
             ok = st.form_submit_button("➕ Cadastrar",type="primary")
         if ok:
-            if not nome or not cliente: st.error("Nome e Cliente obrigatórios.")
+            if _limite_obras_atingido():
+                info = _plano_info()
+                st.error(f"🚫 Limite de **{info.get('max_obras')} obra(s)** do plano **{info.get('plano_slug','').title()}** atingido.")
+            elif not nome or not cliente: st.error("Nome e Cliente obrigatórios.")
             else:
                 dados_nova = {"Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat,"Responsável":resp}
                 uuid_nova = sync.obra_save(dados_nova)
