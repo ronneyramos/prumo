@@ -1,0 +1,17 @@
+[client]
+showSidebarNavigation = false
+
+[server]
+headless = true
+maxUploadSize = 50
+
+[theme]
+base = "light"
+primaryColor = "#2AACA0"
+backgroundColor = "#F4F6F8"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1B3A5E"
+font = "sans serif"
+
+[runner]
+fastReruns = true
