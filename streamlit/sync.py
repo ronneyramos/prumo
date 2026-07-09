@@ -130,9 +130,11 @@ def obra_delete(sb_id: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 _PAGAR_COLS   = ["ID","SB_ID","Obra","Fornecedor","Descrição","Categoria",
-                 "Valor (R$)","Vencimento","Status","NF","Forma Pag."]
+                 "Valor (R$)","Vencimento","Status","NF","Forma Pag.",
+                 "eap_item_id","tipo_custo"]
 _RECEBER_COLS = ["ID","SB_ID","Obra","Cliente","Descrição",
-                 "Valor (R$)","Vencimento","Status"]
+                 "Valor (R$)","Vencimento","Status",
+                 "eap_item_id","tipo_custo"]
 
 _STATUS_SB = {
     "A Pagar":   "Previsto", "A Receber": "Previsto",
@@ -167,6 +169,8 @@ def lancamentos_load(tipo: str) -> pd.DataFrame:
                 "Valor (R$)": float(_attr(row, "valor", default=0) or 0),
                 "Vencimento": _iso_to_br(_attr(row, "data_vencimento")),
                 "Status":     status_map.get(status_sb, status_sb),
+                "eap_item_id": _attr(row, "eap_item_id", default=None),
+                "tipo_custo":  _attr(row, "tipo_custo", default=None),
             }
             if tipo == "PAGAR":
                 base.update({
@@ -203,6 +207,8 @@ def lancamento_save(dados: dict, tipo: str,
             "documento":       dados.get("NF") or None,
             "forma_pagamento": dados.get("Forma Pag.") or None,
             "empresa_id":      _empresa_id(),
+            "eap_item_id":     dados.get("eap_item_id") or None,
+            "tipo_custo":      dados.get("tipo_custo") or None,
         }
         res = lancamento_atualizar(sb_id, payload) if sb_id else lancamento_criar(payload)
         return (res or {}).get("id")
@@ -827,6 +833,8 @@ def requisicao_save(dados: dict) -> str | None:
             "solicitante":      dados.get("Solicitante") or None,
             "observacao":       dados.get("Observação") or None,
             "data_solicitacao": _br_to_iso(dados.get("Data")) or None,
+            "eap_item_id":      dados.get("eap_item_id") or None,
+            "tipo_custo":       dados.get("tipo_custo") or None,
         }
         obra_nome = dados.get("Obra", "")
         if obra_nome:
@@ -841,6 +849,249 @@ def requisicao_save(dados: dict) -> str | None:
     except Exception:
         print("[sync.requisicao_save] ERRO:\n", traceback.format_exc())
         return None
+
+
+# ── ORÇAMENTO ────────────────────────────────────────────────────────────────
+
+
+def orcamento_save(obra_sb_id: str, nome: str, versao: int,
+                   base_ref: str, bdi_pct: float, encargos: float,
+                   total_custo: float, total_venda: float,
+                   status: str, itens: list[dict]) -> str | None:
+    """Salva orçamento (header + itens) no Supabase.
+
+    itens = [
+        {"ordem": "1.1", "descricao": "...", "unidade": "m³",
+         "quantidade": 120.0, "preco_unit": 38.0,
+         "tipo": "ETAPA"|"ITEM", "nivel": 1, ...}
+    ]
+    """
+    try:
+        from db import sb
+        from datetime import date
+        user = sb().auth.get_user()
+        user_id = user.user.id if user and user.user else None
+
+        eid = _empresa_id()
+
+        # Header
+        header = {
+            "obra_id":  obra_sb_id,
+            "nome":     nome,
+            "versao":   versao,
+            "base_referencia": base_ref,
+            "bdi":              bdi_pct / 100.0,
+            "encargos_sociais": encargos / 100.0,
+            "total_custo":      round(total_custo, 2),
+            "total_venda":      round(total_venda, 2),
+            "status": status,
+            "created_by": user_id,
+            "empresa_id": eid,
+        }
+        res = sb().table("orcamentos").insert(header).execute()
+        if not res.data:
+            return None
+        orc_id = res.data[0]["id"]
+
+        # Itens — salva em duas etapas para resolver composicao_id FK
+        parent_rows = []
+        child_rows = []
+        ordem_to_parent_id = {}
+        for it in itens:
+            if it.get("tipo") != "ITEM":
+                continue
+            composicao_ref = it.get("composicao_id") or None
+            if composicao_ref:
+                child_rows.append(it)
+            else:
+                parent_rows.append(it)
+
+        # 1. Salva pais (sem composicao_id) e captura IDs
+        if parent_rows:
+            parent_payload = [{
+                "orcamento_id": orc_id,
+                "ordem":        str(it.get("ordem", "")),
+                "descricao":    it.get("descricao", ""),
+                "unidade":      it.get("unidade", ""),
+                "quantidade":   float(it.get("quantidade", 0) or 0),
+                "preco_unit":   float(it.get("preco_custo", 0) or 0),
+                "empresa_id":   eid,
+            } for it in parent_rows]
+            parent_res = sb().table("orcamento_itens").insert(parent_payload).execute()
+            if parent_res.data:
+                for saved, orig in zip(parent_res.data, parent_rows):
+                    ordem_to_parent_id[orig.get("ordem", "")] = saved["id"]
+
+        # 2. Salva filhos com composicao_id resolvido
+        if child_rows:
+            child_payload = [{
+                "orcamento_id":  orc_id,
+                "ordem":         str(it.get("ordem", "")),
+                "descricao":     it.get("descricao", ""),
+                "unidade":       it.get("unidade", ""),
+                "quantidade":    float(it.get("quantidade", 0) or 0),
+                "preco_unit":    float(it.get("preco_custo", 0) or 0),
+                "empresa_id":    eid,
+                "composicao_id": ordem_to_parent_id.get(it.get("composicao_id")),
+            } for it in child_rows]
+            sb().table("orcamento_itens").insert(child_payload).execute()
+
+        return orc_id
+    except Exception:
+        print("[sync.orcamento_save] ERRO:\n", traceback.format_exc())
+        return None
+
+
+def orcamento_load() -> list[dict]:
+    """Carrega todos os orçamentos com itens."""
+    try:
+        from db import sb
+        orcs = sb().table("orcamentos").select("*, obras(id, nome)").eq("empresa_id", _empresa_id()).order("created_at", desc=True).execute()
+        result = []
+        for o in orcs.data or []:
+            bdi_dec = float(o.get("bdi", 0) or 0)
+            bdi_fator = 1.0 + bdi_dec
+            itens_raw = sb().table("orcamento_itens").select("*").eq("orcamento_id", o["id"]).order("ordem").execute()
+            itens = []
+            for i in itens_raw.data or []:
+                qtd = float(i.get("quantidade", 0) or 0)
+                pu_custo = float(i.get("preco_unit", 0) or 0)
+                pu_venda = round(pu_custo * bdi_fator, 4)
+                tot_custo = round(qtd * pu_custo, 2)
+                tot_venda = round(qtd * pu_venda, 2)
+                itens.append({
+                    "ordem":        i.get("ordem", ""),
+                    "descricao":    i.get("descricao", ""),
+                    "unidade":      i.get("unidade", ""),
+                    "quantidade":   qtd,
+                    "preco_custo":  pu_custo,
+                    "preco_venda":  pu_venda,
+                    "total_custo":  tot_custo,
+                    "total_venda":  tot_venda,
+                    "tipo":         "ITEM",
+                })
+            result.append({
+                "id":             o["id"],
+                "obra_id":        o.get("obra_id"),
+                "obra_nome":      o.get("obras", {}).get("nome") if o.get("obras") else None,
+                "nome":           o.get("nome"),
+                "versao":         o.get("versao"),
+                "base_referencia": o.get("base_referencia"),
+                "bdi":            o.get("bdi", 0) * 100,
+                "total_custo":    o.get("total_custo", 0),
+                "total_venda":    o.get("total_venda", 0),
+                "status":         o.get("status"),
+                "itens":          itens,
+            })
+        return result
+    except Exception:
+        print("[sync.orcamento_load] ERRO:\n", traceback.format_exc())
+        return []
+
+
+# ── EAP ──────────────────────────────────────────────────────────────────────
+
+
+def eap_save_from_orcamento(obra_sb_id: str, itens: list[dict]) -> bool:
+    """Gera/atualiza a EAP de uma obra a partir dos itens de orçamento."""
+    try:
+        from db import sb
+        eid = _empresa_id()
+        # Remove EAP existente
+        sb().table("eap_itens").delete().eq("obra_id", obra_sb_id).execute()
+        # Insere itens
+        rows = []
+        ordem = 0
+        for it in itens:
+            _desc = it.get("descricao", "")
+            if not _desc:
+                continue
+            rows.append({
+                "obra_id":       obra_sb_id,
+                "codigo":        str(it.get("ordem", "")),
+                "descricao":     _desc,
+                "unidade":       it.get("unidade", ""),
+                "qtd_prevista":  float(it.get("quantidade", 0) or 0),
+                "valor_previsto": float(it.get("total_venda", 0) or 0),
+                "ordem":         ordem,
+                "empresa_id":    eid,
+            })
+            ordem += 1
+        if rows:
+            sb().table("eap_itens").insert(rows).execute()
+        return True
+    except Exception:
+        print("[sync.eap_save_from_orcamento] ERRO:\n", traceback.format_exc())
+        return False
+
+
+def eap_load(obra_sb_id: str) -> list[dict]:
+    """Carrega EAP de uma obra."""
+    try:
+        from db import sb
+        res = sb().table("eap_itens").select("*").eq("obra_id", obra_sb_id).eq("empresa_id", _empresa_id()).order("ordem").execute()
+        return res.data or []
+    except Exception:
+        print("[sync.eap_load] ERRO:\n", traceback.format_exc())
+        return []
+
+
+def eap_update_progresso(obra_sb_id: str, codigo: str, progresso: float) -> bool:
+    """Salva o % de avanço de uma etapa EAP."""
+    try:
+        from db import sb
+        sb().table("eap_itens").update({"progresso": round(progresso / 100, 4)}).eq("obra_id", obra_sb_id).eq("codigo", codigo).execute()
+        return True
+    except Exception:
+        print("[sync.eap_update_progresso] ERRO:\n", traceback.format_exc())
+        return False
+
+
+def eap_update_datas(obra_sb_id: str, codigo: str, data_inicio: str, data_termino: str) -> bool:
+    """Salva datas de uma etapa EAP. Recebe strings dd/mm/YYYY."""
+    try:
+        from db import sb
+        payload = {}
+        if data_inicio:
+            payload["data_inicio"] = _br_to_iso(data_inicio)
+        if data_termino:
+            payload["data_termino"] = _br_to_iso(data_termino)
+        if payload:
+            sb().table("eap_itens").update(payload).eq("obra_id", obra_sb_id).eq("codigo", codigo).execute()
+        return True
+    except Exception:
+        print("[sync.eap_update_datas] ERRO:\n", traceback.format_exc())
+        return False
+
+
+def eap_save_all_progresso(obra_sb_id: str, progressos: dict[str, float]) -> bool:
+    """Salva múltiplos progressos de uma vez. progressos = {codigo: pct}"""
+    try:
+        from db import sb
+        for codigo, pct in progressos.items():
+            sb().table("eap_itens").update({"progresso": round(pct / 100, 4)}).eq("obra_id", obra_sb_id).eq("codigo", codigo).execute()
+        return True
+    except Exception:
+        print("[sync.eap_save_all_progresso] ERRO:\n", traceback.format_exc())
+        return False
+
+
+def eap_save_all_datas(obra_sb_id: str, datas: dict[str, dict]) -> bool:
+    """Salva múltiplas datas de uma vez. datas = {codigo: {ini: ..., fim: ...}}"""
+    try:
+        from db import sb
+        for codigo, d in datas.items():
+            payload = {}
+            if d.get("ini"):
+                payload["data_inicio"] = _br_to_iso(d["ini"])
+            if d.get("fim"):
+                payload["data_termino"] = _br_to_iso(d["fim"])
+            if payload:
+                sb().table("eap_itens").update(payload).eq("obra_id", obra_sb_id).eq("codigo", codigo).execute()
+        return True
+    except Exception:
+        print("[sync.eap_save_all_datas] ERRO:\n", traceback.format_exc())
+        return False
 
 
 def requisicao_status_update(sb_id: str, status: str, aprovado_por: str = "") -> bool:

@@ -10,7 +10,7 @@ import pandas as pd
 
 load_dotenv()
 
-# ── Cliente ──────────────────────────────────────────────────────────────────
+# ── Cliente anon (leitura/escrita normal) ────────────────────────────────────
 
 @lru_cache(maxsize=1)
 def get_client() -> Client:
@@ -25,7 +25,26 @@ def get_client() -> Client:
 
 
 def sb() -> Client:
+    """Retorna cliente Supabase — usa service_role se disponível (bypassa RLS)."""
+    admin = get_admin_client()
+    if admin:
+        return admin
     return get_client()
+
+
+# ── Cliente admin (service_role — apenas operações administrativas) ───────────
+
+@lru_cache(maxsize=1)
+def get_admin_client() -> Client | None:
+    url  = os.environ.get("SUPABASE_URL", "")
+    key  = os.environ.get("SUPABASE_SERVICE_KEY", "")
+    if not url or not key:
+        return None
+    return create_client(url, key)
+
+
+def sb_admin() -> Client | None:
+    return get_admin_client()
 
 
 # ── Utilitários ──────────────────────────────────────────────────────────────
@@ -182,6 +201,10 @@ def eap_upsert(itens: list) -> list:
     res = sb().table("eap_itens").upsert(itens, on_conflict="obra_id,codigo").execute()
     return res.data or []
 
+def eap_itens_por_obra(obra_id: str) -> pd.DataFrame:
+    q = sb().table("eap_itens").select("id,codigo,descricao,valor_previsto,qtd_prevista,unidade").eq("obra_id", obra_id).order("ordem").execute()
+    return _df(q.data)
+
 
 # ── MEDIÇÕES ─────────────────────────────────────────────────────────────────
 
@@ -224,3 +247,44 @@ def folha_criar(registros: list) -> list:
         return []
     res = sb().table("folha_pagamento").upsert(registros, on_conflict="competencia,colaborador_id").execute()
     return res.data or []
+
+
+# ── ORÇADO x REALIZADO ───────────────────────────────────────────────────────
+
+def orcado_realizado_listar() -> pd.DataFrame:
+    q = sb().table("vw_orcado_realizado").select("*").order("obra_nome").execute()
+    return _df(q.data)
+
+def orcado_realizado_por_obra(obra_id: str) -> pd.DataFrame:
+    q = sb().table("vw_orcado_realizado").select("*").eq("obra_id", obra_id).order("eap_codigo").execute()
+    return _df(q.data)
+
+def resumo_obras_listar() -> pd.DataFrame:
+    q = sb().table("vw_resumo_obra").select("*").order("obra_nome").execute()
+    return _df(q.data)
+
+
+# ── COLUNAS (templates de mapeamento) ──────────────────────────────────────
+
+def colmap_templates_listar(empresa_id: str) -> pd.DataFrame:
+    res = sb().table("orcamento_colmap_templates").select("*").eq("empresa_id", empresa_id).order("created_at", desc=True).execute()
+    return _df(res.data)
+
+def colmap_template_criar(empresa_id: str, nome: str, mapping: dict) -> dict:
+    res = sb().table("orcamento_colmap_templates").insert({
+        "empresa_id": empresa_id,
+        "nome": nome,
+        "mapping": mapping,
+    }).execute()
+    return res.data[0] if res.data else {}
+
+def colmap_template_atualizar(template_id: str, nome: str, mapping: dict) -> dict:
+    res = sb().table("orcamento_colmap_templates").update({
+        "nome": nome,
+        "mapping": mapping,
+        "updated_at": "now()",
+    }).eq("id", template_id).execute()
+    return res.data[0] if res.data else {}
+
+def colmap_template_deletar(template_id: str):
+    sb().table("orcamento_colmap_templates").delete().eq("id", template_id).execute()

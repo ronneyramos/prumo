@@ -10,7 +10,9 @@ import io
 import unicodedata
 import importlib
 import sync
-importlib.reload(sync)  # garante versão atualizada a cada reload do Streamlit
+importlib.reload(sync)
+import db
+importlib.reload(db)
 
 st.set_page_config(page_title="Prumo ERP", layout="wide", page_icon="🏗️",
                    initial_sidebar_state="expanded")
@@ -38,27 +40,79 @@ def _obra_uuid(obra_nome: str) -> str | None:
     """Retorna o UUID da obra pelo nome. Retorna None se nome inválido ou não encontrado."""
     if not _obra_valida(obra_nome):
         return None
-    rows = st.session_state.obras[st.session_state.obras["Nome"] == obra_nome]
-    return _sb_id(st.session_state.obras, rows["ID"].iloc[0]) if len(rows) else None
+    df = st.session_state.obras
+    nome_clean = obra_nome.strip()
+    rows = df[df["Nome"].str.strip() == nome_clean]
+    if rows.empty:
+        rows = df[df["Nome"].str.strip().str.lower() == nome_clean.lower()]
+    if rows.empty:
+        rows = df[df["Nome"].str.contains(nome_clean, case=False, na=False)]
+    return _sb_id(df, rows["ID"].iloc[0]) if len(rows) else None
 
+
+def _carregar_obras_service():
+    """Carrega obras via service_role (bypassa RLS). Retorna DataFrame ou None."""
+    try:
+        from db import sb_admin
+        admin = sb_admin()
+        if not admin: return None
+        r = admin.table("obras").select("*").is_("deleted_at", None).order("created_at").execute()
+        df = pd.DataFrame(r.data) if r.data else pd.DataFrame()
+        if df.empty: return None
+        rows = []
+        for i, row in enumerate(df.itertuples(index=False), start=1):
+            _id_raw = getattr(row, "id", None)
+            _sb_id  = str(_id_raw) if _id_raw else None
+            rows.append({
+                "ID": i, "SB_ID": _sb_id,
+                "Nome": getattr(row, "nome", ""), "Tipo": getattr(row, "tipo", ""),
+                "Cliente": getattr(row, "cliente", ""),
+                "CNPJ Cliente": getattr(row, "cnpj_cliente", ""),
+                "Endereço": getattr(row, "endereco", ""),
+                "Valor Contrato (R$)": float(getattr(row, "valor_contrato", 0) or 0),
+                "BDI (%)": round(float(getattr(row, "bdi", 0.25) or 0.25) * 100, 2),
+                "Início": "", "Término": "",
+                "% Físico": int(float(getattr(row, "pct_fisico", 0) or 0)),
+                "Status": getattr(row, "status", "Planejamento"),
+                "Responsável": getattr(row, "responsavel", ""),
+            })
+        return pd.DataFrame(rows)
+    except Exception as e:
+        print(f"[_carregar_obras_service] ERRO: {e}")
+        return None
 
 def _init():
     # ── Carrega do Supabase na primeira vez que a sessão é aberta ──────────────
     if not st.session_state.get("_erp_init_done"):
+        ok = True
         if _supabase_ok():
-            try:
-                st.session_state.obras          = sync.obras_load()
-                st.session_state.contas_pagar   = sync.lancamentos_load("PAGAR")
-                st.session_state.contas_receber = sync.lancamentos_load("RECEBER")
-                st.session_state.funcionarios   = sync.colaboradores_load()
-                st.session_state.ncs            = sync.ncs_load()
-                st.session_state.medicoes       = sync.medicoes_load()
-                st.session_state.ponto          = sync.faltas_load()
-                st.session_state.ponto_registros= sync.ponto_registro_load()
-                st.session_state.rdo            = sync.rdo_load()
-            except Exception as _e:
-                print(f"[_init] Erro ao carregar dados do Supabase: {_e}")
-        st.session_state._erp_init_done = True
+            _cargas = [
+                ("obras",          sync.obras_load),
+                ("contas_pagar",   sync.lancamentos_load, "PAGAR"),
+                ("contas_receber", sync.lancamentos_load, "RECEBER"),
+                ("funcionarios",   sync.colaboradores_load),
+                ("ncs",            sync.ncs_load),
+                ("medicoes",       sync.medicoes_load),
+                ("ponto",          sync.faltas_load),
+                ("ponto_registros",sync.ponto_registro_load),
+                ("rdo",            sync.rdo_load),
+            ]
+            for carga in _cargas:
+                try:
+                    chave, fn, *args = carga
+                    st.session_state[chave] = fn(*args)
+                except Exception as _e:
+                    print(f"[_init] Erro em {chave}: {_e}")
+                    ok = False
+        if ok:
+            st.session_state._erp_init_done = True
+
+    # ── Se obras ainda está vazio, tenta fallback service_role ────────────────
+    if st.session_state.get("obras", pd.DataFrame()).empty:
+        df = _carregar_obras_service()
+        if df is not None:
+            st.session_state.obras = df
+            print(f"[_init] Fallback service_role OK: {len(df)} obras")
 
     # ── Fallback: tabelas que ainda não têm integração Supabase ───────────────
     if "obras" not in st.session_state:
@@ -151,9 +205,16 @@ def _init():
         st.session_state["_alertas_verificados"] = True
 
 
+def _obras_validas(df: pd.DataFrame) -> pd.DataFrame:
+    """Filtra apenas obras que têm SB_ID (UUID válido no Supabase)."""
+    if df.empty or "SB_ID" not in df.columns:
+        return df
+    return df[df["SB_ID"].notna() & (df["SB_ID"] != "")]
+
 def _obras_nomes(extra: list | None = None) -> list:
     """Retorna lista de nomes de obras visíveis ao usuário; nunca vazia (evita crash em selectbox)."""
     df = st.session_state.get("obras", pd.DataFrame())
+    df = _obras_validas(df)
     if not df.empty and "usuario_role" in st.session_state:
         df = _obras_filtradas(df)
     nomes = df["Nome"].tolist() if not df.empty else []
@@ -188,7 +249,7 @@ def _to_num(v) -> float:
     if v is None:
         return 0.0
     if isinstance(v, (int, float)):
-        return float(v)
+        return 0.0 if pd.isna(v) else float(v)
     s = str(v).strip().replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
     try:
         return float(s)
@@ -249,16 +310,17 @@ def _auth_login():
         st.session_state.auth_mode = "login"
 
     st.markdown("""<style>
+        :root { --primary-color: #1B3A5E !important; }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
         html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
         section[data-testid="stSidebar"] { display: none !important; }
         #MainMenu, footer, header { visibility: hidden; }
         .stApp { background: #EDE8DF !important; }
         .main .block-container {
-            max-width: 1080px !important; padding-top: 5vh !important;
-            padding-left: 2rem !important; padding-right: 2rem !important;
+            max-width: 1200px !important; padding-top: 3vh !important;
+            padding-left: 1.5rem !important; padding-right: 1.5rem !important;
         }
-        /* Inputs com borda teal — igual ao mockup */
+        /* Inputs com borda teal */
         [data-testid="stTextInput"] input {
             border-radius: 8px !important;
             border: 1.5px solid #2AACA0 !important;
@@ -271,18 +333,22 @@ def _auth_login():
             box-shadow: 0 0 0 3px rgba(42,172,160,0.15) !important;
             outline: none !important;
         }
-        /* Esconde a dica nativa "Pressione Enter para enviar o formulário" —
-           polui a tela de login, a maioria dos apps não mostra isso */
         [data-testid="InputInstructions"] { display: none !important; }
-        /* Botão laranja pill — igual ao mockup */
-        button[kind="primary"] {
-            background: #F07820 !important; border: none !important;
+        /* Botão azul escuro — stFormSubmitButton universal */
+        [data-testid="stFormSubmitButton"],
+        [data-testid="stFormSubmitButton"] button {
+            background: #1B3A5E !important;
+            border: none !important;
             border-radius: 8px !important; font-weight: 800 !important;
             font-size: 15px !important; letter-spacing: 2px; text-transform: uppercase;
-            box-shadow: 0 4px 14px rgba(240,120,32,0.30) !important;
-            transition: background 0.2s !important; height: 48px !important;
+            box-shadow: 0 4px 14px rgba(27,58,94,0.25) !important;
+            height: 48px !important;
+            color: #FFFFFF !important;
         }
-        button[kind="primary"]:hover { background: #D9660E !important; }
+        [data-testid="stFormSubmitButton"]:hover,
+        [data-testid="stFormSubmitButton"]:hover button {
+            background: #122A45 !important;
+        }
         /* Card branco do formulário */
         [data-testid="stForm"] {
             background: #FFFFFF !important; border: none !important;
@@ -291,11 +357,24 @@ def _auth_login():
             margin-bottom: 14px !important;
         }
         [data-testid="stTextInput"] { margin-bottom: 2px !important; }
-        /* Labels do selectbox no cadastro */
         [data-testid="stSelectbox"] label { font-size: 12px !important; color: #6B7280 !important; }
+        /* Colunas com mesma altura */
+        section[data-testid="stHorizontalBlock"] > div {
+            display: flex; flex-direction: column;
+        }
+        /* Imagem preenche toda a coluna direita */
+        .login-illus-wrap {
+            border-radius: 16px; overflow: hidden; width: 100%;
+            box-shadow: 0 2px 24px rgba(27,58,94,0.09);
+            flex: 1; display: flex;
+        }
+        .login-illus-wrap img {
+            width: 100%; flex: 1; display: block;
+            object-fit: cover; object-position: center 30%;
+        }
     </style>""", unsafe_allow_html=True)
 
-    col_form, col_illus = st.columns([1.1, 0.9], gap="large")
+    col_form, col_illus = st.columns([1, 1], gap="large")
 
     # ─── COLUNA ESQUERDA — Logo + Form ───────────────────────────────────────
     with col_form:
@@ -323,7 +402,7 @@ def _auth_login():
                 st.markdown('<p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6B7280;margin:14px 0 6px;">SENHA</p>', unsafe_allow_html=True)
                 senha  = st.text_input("senha", type="password", label_visibility="collapsed")
                 st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
-                entrar = st.form_submit_button("ENTRAR", use_container_width=True, type="primary")
+                entrar = st.form_submit_button("ENTRAR", use_container_width=True)
 
             st.markdown("""
             <div style="text-align:center;margin-top:14px;">
@@ -394,7 +473,7 @@ def _auth_login():
                 nome_empresa = st.text_input("Nome da empresa / construtora", placeholder="Ex: MBR Engenharia")
                 cidade_cad   = st.text_input("Cidade", value="Fortaleza")
                 estado_cad   = st.selectbox("Estado", ["CE","SP","RJ","MG","BA","PE","RS","SC","PR","GO","DF","AM","PA","MA","PI","RN","PB","AL","SE","ES","MT","MS","RO","AC","RR","AP","TO"])
-                cadastrar    = st.form_submit_button("CRIAR CONTA", use_container_width=True, type="primary")
+                cadastrar    = st.form_submit_button("CRIAR CONTA", use_container_width=True)
             if st.button("← Voltar ao login", key="btn_voltar_login"):
                 st.session_state.auth_mode = "login"
                 st.rerun()
@@ -450,9 +529,9 @@ def _auth_login():
         with open(_img_path, "rb") as _f:
             _img_b64 = _base64.b64encode(_f.read()).decode()
         st.markdown(
-            f'<div style="background-image:url(data:image/png;base64,{_img_b64});'
-            'background-size:cover;background-position:center;background-repeat:no-repeat;'
-            'border-radius:16px;height:600px;width:100%;"></div>',
+            f'<div class="login-illus-wrap">'
+            f'<img src="data:image/png;base64,{_img_b64}" alt="Prédio" />'
+            f'</div>',
             unsafe_allow_html=True,
         )
 
@@ -498,6 +577,153 @@ def _obras_filtradas(df_obras: pd.DataFrame) -> pd.DataFrame:
     return df_obras[df_obras["SB_ID"].isin(ids_permitidos)].reset_index(drop=True)
 
 
+# ── Administração ────────────────────────────────────────────────────────────
+
+def pagina_admin():
+    if _role() != "admin":
+        st.error("Acesso restrito a administradores.")
+        return
+
+    from db import sb, sb_admin
+    _init()
+    st.title("⚙️ Administração")
+
+    tabs = st.tabs(["👥 Usuários", "🏢 Empresa"])
+
+    # ===== TAB 1: USUÁRIOS =====================================================
+    with tabs[0]:
+        # ── Lista de usuários ──────────────────────────────────────────────────
+        try:
+            profiles = sb().table("profiles").select("id, nome, email, created_at").order("created_at").execute()
+            roles_raw = sb().table("user_roles").select("user_id, role").execute()
+        except Exception as e:
+            st.error(f"Erro ao carregar dados: {e}")
+            return
+
+        df_profiles = pd.DataFrame(profiles.data or [])
+        df_roles    = pd.DataFrame(roles_raw.data or [])
+
+        # Monta dicionário user_id → [roles]
+        _roles_map = df_roles.groupby("user_id")["role"].apply(list).to_dict()
+
+        # ── Invite user ────────────────────────────────────────────────────────
+        with st.expander("➕ Convidar novo usuário", expanded=False):
+            with st.form("form_invite_user"):
+                c1, c2 = st.columns(2)
+                inv_nome  = c1.text_input("Nome completo *")
+                inv_email = c2.text_input("E-mail *")
+                inv_senha = c1.text_input("Senha *", type="password", placeholder="Mínimo 6 caracteres")
+                inv_role  = c2.selectbox("Perfil *", ["admin","engenheiro","financeiro","suprimentos","qualidade","rh","visualizador"])
+                inv_obras = st.multiselect(
+                    "Obras com acesso (deixe vazio para todas)",
+                    options=st.session_state.obras["SB_ID"].tolist() if not st.session_state.obras.empty else [],
+                    format_func=lambda x: st.session_state.obras.loc[st.session_state.obras["SB_ID"] == x, "Nome"].iloc[0] if x in st.session_state.obras["SB_ID"].values else x,
+                )
+                submitted = st.form_submit_button("Criar usuário", type="primary", use_container_width=True)
+
+                if submitted:
+                    if not inv_nome or not inv_email or not inv_senha:
+                        st.error("Preencha nome, e-mail e senha.")
+                    else:
+                        admin = sb_admin()
+                        if not admin:
+                            st.error("Chave service_role não configurada no .env")
+                        else:
+                            try:
+                                resp = admin.auth.admin.create_user({
+                                    "email": inv_email,
+                                    "password": inv_senha,
+                                    "email_confirm": True,
+                                    "user_metadata": {"full_name": inv_nome},
+                                })
+                                uid = resp.user.id
+                                # Atribui role
+                                try:
+                                    sb().table("user_roles").insert({
+                                        "user_id": uid,
+                                        "role": inv_role,
+                                    }).execute()
+                                except Exception as role_e:
+                                    st.warning(f"Usuário criado, mas falha ao atribuir role: {role_e}")
+                                # Vincula obras
+                                if inv_obras:
+                                    try:
+                                        sb().table("usuario_obras").insert([
+                                            {"user_id": uid, "obra_id": oid} for oid in inv_obras
+                                        ]).execute()
+                                    except Exception as obras_e:
+                                        st.warning(f"Usuário criado, mas falha ao vincular obras: {obras_e}")
+                                st.success(f"✅ Usuário {inv_nome} criado com sucesso!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao criar usuário: {e}")
+
+        # ── Tabela de usuários ─────────────────────────────────────────────────
+        if df_profiles.empty:
+            st.info("Nenhum usuário encontrado.")
+        else:
+            for _, row in df_profiles.iterrows():
+                uid   = row["id"]
+                roles = _roles_map.get(uid, [])
+                with st.container(border=True):
+                    cc1, cc2, cc3 = st.columns([3, 2, 3])
+                    with cc1:
+                        st.markdown(f"**{row.get('nome', '—')}**")
+                        st.caption(row.get("email", ""))
+                    with cc2:
+                        st.write(" / ".join(roles) if roles else "—")
+                    with cc3:
+                        with st.popover("Editar permissões", icon="✏️"):
+                            # Role
+                            novas_roles = st.multiselect(
+                                "Perfis",
+                                ["admin","engenheiro","financeiro","suprimentos","qualidade","rh","visualizador"],
+                                default=roles,
+                                key=f"role_{uid}",
+                            )
+                            # Obras
+                            if not st.session_state.obras.empty:
+                                obras_atuais = []
+                                try:
+                                    res_o = sb().table("usuario_obras").select("obra_id").eq("user_id", uid).execute()
+                                    obras_atuais = [r["obra_id"] for r in (res_o.data or [])]
+                                except Exception:
+                                    pass
+                                novas_obras = st.multiselect(
+                                    "Obras com acesso",
+                                    options=st.session_state.obras["SB_ID"].tolist(),
+                                    format_func=lambda x: st.session_state.obras.loc[st.session_state.obras["SB_ID"] == x, "Nome"].iloc[0],
+                                    default=obras_atuais,
+                                    key=f"obras_{uid}",
+                                )
+                            if st.button("Salvar", key=f"save_{uid}", type="primary"):
+                                # Atualiza roles
+                                removidas = [r for r in roles if r not in novas_roles]
+                                adicionadas = [r for r in novas_roles if r not in roles]
+                                try:
+                                    for r in removidas:
+                                        sb().table("user_roles").delete().eq("user_id", uid).eq("role", r).execute()
+                                    for r in adicionadas:
+                                        sb().table("user_roles").insert({"user_id": uid, "role": r}).execute()
+                                except Exception as e:
+                                    st.error(f"Erro ao atualizar roles: {e}")
+                                # Atualiza obras
+                                try:
+                                    sb().table("usuario_obras").delete().eq("user_id", uid).execute()
+                                    if novas_obras:
+                                        sb().table("usuario_obras").insert([
+                                            {"user_id": uid, "obra_id": oid} for oid in novas_obras
+                                        ]).execute()
+                                except Exception as e:
+                                    st.error(f"Erro ao atualizar obras: {e}")
+                                st.success("Permissões atualizadas!")
+                                st.rerun()
+
+    # ===== TAB 2: EMPRESA ======================================================
+    with tabs[1]:
+        st.info("⚙️ Configurações da empresa serão implementadas em breve.")
+
+
 # ── Dashboard ────────────────────────────────────────────────────────────────
 
 def _dados_obras_dash():
@@ -509,12 +735,7 @@ def _dados_obras_dash():
         "pct_fisico":     [55,40,40,24],
     })
 
-def pagina_dashboard():
-    st.title("🏠 Dashboard")
-    _init()
-    _show_toast()
-
-    # ── Banner de alertas ─────────────────────────────────────────────────────
+def _dash_alert_banner():
     _al_cache = st.session_state.get("_alertas_cache", {})
     _n_venc   = len(_al_cache.get("vencimentos", []))
     _n_nc     = len(_al_cache.get("ncs_abertas", []))
@@ -542,9 +763,29 @@ def pagina_dashboard():
             st.rerun()
     else:
         st.info("✅ Nenhum alerta ativo no momento.")
-    # ─────────────────────────────────────────────────────────────────────────
 
-    CATS      = ["Materiais", "Folha de Pagamento", "Impostos", "Outros"]
+
+def _dash_quick_nav():
+    st.markdown('<div class="dash-card"><div class="dash-card-nav">', unsafe_allow_html=True)
+    for label, page in [
+        ("🏗️  Obras", "Obras"), ("💰  Financeiro", "Financeiro"),
+        ("📦  Suprimentos", "Suprimentos"), ("👥  Pessoal", "Pessoal"),
+        ("📊  Orçamento", "Orçamento"),
+    ]:
+        if st.button(label, key=f"qnav_{page}", use_container_width=True, type="secondary"):
+            st.session_state.pagina_atual = page
+            st.rerun()
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+
+def pagina_dashboard():
+    st.title("🏠 Dashboard")
+    _init()
+    _show_toast()
+
+    _dash_alert_banner()
+
+    CATS = ["Materiais", "Folha de Pagamento", "Impostos", "Outros"]
     CAT_CORES = {"Materiais": "#2B59C3", "Folha de Pagamento": "#E67E22",
                  "Impostos": "#E74C3C",  "Outros": "#95A5A6"}
     STATUS_CORES = {"Em andamento": "#2B59C3", "Paralisada": "#E74C3C",
@@ -556,7 +797,6 @@ def pagina_dashboard():
     est_df    = st.session_state.estoque.copy()
     hoje      = date.today()
 
-    # garante coluna numérica de valor e vencimento
     contas_df["Valor (R$)"] = pd.to_numeric(contas_df["Valor (R$)"], errors="coerce").fillna(0.0)
     contas_df["venc_dt"]    = pd.to_datetime(contas_df["Vencimento"], dayfirst=True, errors="coerce").dt.date
 
@@ -586,6 +826,22 @@ def pagina_dashboard():
     func_df["Salário (R$)"] = pd.to_numeric(func_df.get("Salário (R$)", 0), errors="coerce").fillna(0.0)
     total_folha = func_df["Salário (R$)"].sum() * 1.31 if len(func_df) else 0.0
 
+    # ── KPI row ──
+    st.markdown('<div class="dash-kpi-row">', unsafe_allow_html=True)
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Obras Ativas",        str(n_ativas))
+    k2.metric("Portfólio Total",     f"R$ {total_contratado/1_000_000:.2f}M")
+    k3.metric("Estimativa Medida",   f"R$ {total_medido/1_000:.0f}k",
+              delta=f"{pct_med:.1f}% do portfólio")
+    k4.metric("Saldo a Medir",       _fmt(saldo_a_medir),
+              help="Valor Contrato − Total Medido Acumulado (medições registradas)")
+    k5.metric("Alertas Financeiros", str(n_alertas),
+              delta="Ação necessária" if n_alertas else "Em dia",
+              delta_color="inverse" if n_alertas else "normal")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    _dash_quick_nav()
+
     tab_geral, tab_obra = st.tabs(["🏢 Visão Geral — Diretoria / Sócios",
                                    "🏗️ Por Obra — Engenharia / Administrativo"])
 
@@ -593,18 +849,8 @@ def pagina_dashboard():
     # TAB 1 — VISÃO GERAL
     # ═══════════════════════════════════════════════════════════════════════
     with tab_geral:
-        k1, k2, k3, k4, k5 = st.columns(5)
-        k1.metric("Obras Ativas",        str(n_ativas))
-        k2.metric("Portfólio Total",     f"R$ {total_contratado/1_000_000:.2f}M")
-        k3.metric("Estimativa Medida",   f"R$ {total_medido/1_000:.0f}k",
-                  delta=f"{pct_med:.1f}% do portfólio")
-        k4.metric("Saldo a Medir",       _fmt(saldo_a_medir),
-                  help="Valor Contrato − Total Medido Acumulado (medições registradas)")
-        k5.metric("Alertas Financeiros", str(n_alertas),
-                  delta="Ação necessária" if n_alertas else "Em dia",
-                  delta_color="inverse" if n_alertas else "normal")
-
-        st.markdown("---")
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card-header">📊 Avanço Físico e Distribuição do Portfólio</div>', unsafe_allow_html=True)
         ca, cb = st.columns(2)
         with ca:
             st.subheader("Avanço Físico por Obra")
@@ -617,9 +863,9 @@ def pagina_dashboard():
                 fig_av.update_layout(xaxis_range=[0, 115], height=max(240, len(obras_df)*50),
                                      plot_bgcolor="white", paper_bgcolor="white",
                                      margin=dict(l=0, r=20, t=10, b=0))
-                st.plotly_chart(fig_av, width='stretch')
+                st.plotly_chart(fig_av, use_container_width=True)
             else:
-                st.info("Nenhuma obra cadastrada.")
+                st.markdown('<p class="dash-empty">Nenhuma obra cadastrada.</p>', unsafe_allow_html=True)
         with cb:
             st.subheader("Distribuição do Portfólio")
             if len(obras_df):
@@ -631,7 +877,9 @@ def pagina_dashboard():
                                       margin=dict(l=40, r=40, t=10, b=40))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
-        st.markdown("---")
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card-header">📈 Medição vs Contrato e Custos por Categoria</div>', unsafe_allow_html=True)
         cc, cd = st.columns(2)
         with cc:
             st.subheader("Medição vs Contrato (R$)")
@@ -665,10 +913,11 @@ def pagina_dashboard():
                                       paper_bgcolor="white", margin=dict(l=0, r=0, t=30, b=0))
                 st.plotly_chart(fig_cat, width='stretch')
             else:
-                st.info("Nenhum lançamento financeiro categorizado.")
+                st.markdown('<p class="dash-empty">Nenhum lançamento financeiro categorizado.</p>', unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.subheader("📊 Status das Obras")
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card-header">📊 Status das Obras</div>', unsafe_allow_html=True)
 
         def _semaforo_obra(row):
             inicio  = pd.to_datetime(row.get("Início"),  dayfirst=True, errors="coerce")
@@ -698,10 +947,11 @@ def pagina_dashboard():
             st.dataframe(sem_df[["Nome", "Cliente", "% Físico", "Status", "Status Prazo"]],
                          width='stretch', hide_index=True)
         else:
-            st.info("Nenhuma obra cadastrada.")
+            st.markdown('<p class="dash-empty">Nenhuma obra cadastrada.</p>', unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.subheader("💰 Fluxo de Caixa Mensal")
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card-header">💰 Fluxo de Caixa Mensal</div>', unsafe_allow_html=True)
         cp_fc = st.session_state.contas_pagar.copy()
         cr_fc = st.session_state.contas_receber.copy()
         cp_fc["Valor (R$)"] = cp_fc["Valor (R$)"].apply(_to_num)
@@ -734,9 +984,10 @@ def pagina_dashboard():
                                  paper_bgcolor="white")
             st.plotly_chart(fig_fc, width='stretch')
         else:
-            st.info("Sem lançamentos financeiros para exibir o fluxo de caixa.")
+            st.markdown('<p class="dash-empty">Sem lançamentos financeiros para exibir o fluxo de caixa.</p>', unsafe_allow_html=True)
 
-        st.markdown("---")
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
         col_al, col_fp = st.columns([2, 1])
         with col_al:
             st.subheader("⚠️ Alertas Financeiros")
@@ -760,13 +1011,15 @@ def pagina_dashboard():
             st.metric("Custo Folha Estimado", f"R$ {total_folha:,.0f}".replace(",", "."),
                       help="Salário bruto × 1,31 (INSS + FGTS + RAT)")
 
+        st.markdown('</div>', unsafe_allow_html=True)
+
     # ═══════════════════════════════════════════════════════════════════════
     # TAB 2 — POR OBRA
     # ═══════════════════════════════════════════════════════════════════════
     with tab_obra:
         obras_lista = obras_df["Nome"].tolist()
         if not obras_lista:
-            st.info("Nenhuma obra cadastrada.")
+            st.markdown('<p class="dash-empty">Nenhuma obra cadastrada.</p>', unsafe_allow_html=True)
             return
 
         obra_sel = st.selectbox("Selecione a Obra", obras_lista, key="dash_obra_sel")
@@ -786,6 +1039,7 @@ def pagina_dashboard():
                             ((contas_obra["Status"] == "A Pagar") &
                              (contas_obra["venc_dt"] <= hoje + timedelta(days=7)))).sum())
 
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Avanço Físico",      f"{pct_fisico:.1f}%")
         k2.metric("Valor Contrato",     f"R$ {val_contrato:,.0f}".replace(",", "."))
@@ -805,8 +1059,10 @@ def pagina_dashboard():
             f"**Responsável:** {o.get('Responsável','—')}  |  "
             f"**Cliente:** {o.get('Cliente','—')}"
         )
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown("---")
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card-header">📊 Custos e Equipe</div>', unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
 
         with col_a:
@@ -821,7 +1077,7 @@ def pagina_dashboard():
                 fig_cc.update_layout(showlegend=False, margin=dict(l=0, r=0, t=10, b=0))
                 st.plotly_chart(fig_cc, width='stretch')
             else:
-                st.info("Sem lançamentos financeiros nesta obra.")
+                st.markdown('<p class="dash-empty">Sem lançamentos financeiros nesta obra.</p>', unsafe_allow_html=True)
 
         with col_b:
             st.subheader("Equipe Alocada")
@@ -840,9 +1096,11 @@ def pagina_dashboard():
                     f_exib["Salário"] = f_exib["Salário"].apply(_fmt)
                 st.dataframe(f_exib, width='stretch', hide_index=True)
             else:
-                st.info("Nenhum colaborador alocado nesta obra.")
+                st.markdown('<p class="dash-empty">Nenhum colaborador alocado nesta obra.</p>', unsafe_allow_html=True)
 
-        st.markdown("---")
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card-header">📋 Contas e Materiais</div>', unsafe_allow_html=True)
         col_c, col_d = st.columns(2)
 
         with col_c:
@@ -856,7 +1114,7 @@ def pagina_dashboard():
                 cp_exib["Valor (R$)"] = cp_exib["Valor (R$)"].apply(_fmt)
                 st.dataframe(cp_exib, width='stretch', hide_index=True)
             else:
-                st.info("Sem contas registradas nesta obra.")
+                st.markdown('<p class="dash-empty">Sem contas registradas nesta obra.</p>', unsafe_allow_html=True)
 
         with col_d:
             st.subheader("Materiais em Alerta")
@@ -875,15 +1133,17 @@ def pagina_dashboard():
                 else:
                     st.success("Todos os materiais acima do mínimo.")
             else:
-                st.info("Sem insumos registrados nesta obra.")
+                st.markdown('<p class="dash-empty">Sem insumos registrados nesta obra.</p>', unsafe_allow_html=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # Orçamento importado — resumo executivo
         orc = st.session_state.get("orcamento_por_obra", {}).get(obra_sel)
         if orc:
             itens = [r for r in orc if r["tipo"] == "ITEM"]
             if itens:
-                st.markdown("---")
-                st.subheader("Orçamento Importado — Resumo Executivo")
+                st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+                st.markdown('<div class="dash-card-header">📊 Orçamento Importado — Resumo Executivo</div>', unsafe_allow_html=True)
                 total_orc_custo = sum(r.get("total_custo") or 0 for r in itens)
                 total_orc_venda = sum(r.get("total_venda") or 0 for r in itens)
                 bdi_medio = (total_orc_venda / total_orc_custo - 1) * 100 if total_orc_custo else 0
@@ -895,10 +1155,11 @@ def pagina_dashboard():
                 o4.metric("Desvio (Real – Orc)", f"R$ {desvio:,.0f}".replace(",", "."),
                           delta="Estouro" if desvio > 0 else "Dentro do orçado",
                           delta_color="inverse" if desvio > 0 else "normal")
+                st.markdown('</div>', unsafe_allow_html=True)
 
     # ── RELATÓRIO GERENCIAL PDF ───────────────────────────────────────────────
-    st.markdown("---")
-    st.subheader("📑 Relatório Gerencial Mensal")
+    st.markdown('<div class="dash-card">', unsafe_allow_html=True)
+    st.markdown('<div class="dash-card-header">📑 Relatório Gerencial Mensal</div>', unsafe_allow_html=True)
     _rg_c1, _rg_c2 = st.columns([3, 1])
     _mes_ref = _rg_c1.text_input(
         "Mês de referência",
@@ -929,6 +1190,8 @@ def pagina_dashboard():
             st.success("✅ Relatório Gerencial gerado com sucesso!")
         except Exception as _e_rg:
             st.error(f"❌ Erro ao gerar relatório: {_e_rg}")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ── Obras ────────────────────────────────────────────────────────────────────
@@ -1145,7 +1408,7 @@ def pagina_obras():
                     st.session_state.contas_receber = pd.concat([
                         st.session_state.contas_receber,
                         pd.DataFrame([{"ID": _next_id(st.session_state.contas_receber),
-                                       "SB_ID": uuid_bm or "", **dados_bm}])
+                                       "SB_ID": uuid_bm or None, **dados_bm}])
                     ], ignore_index=True)
                 st.success(f"✅ Medição registrada! {obra_med} avançou para **{pct_med_inp:.0f}%** físico. "
                            + (f"Conta a Receber de **{_fmt(valor_med)}** gerada." if valor_med > 0 else ""))
@@ -1173,10 +1436,19 @@ def pagina_obras():
             if not nome or not cliente: st.error("Nome e Cliente obrigatórios.")
             else:
                 dados_nova = {"Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat,"Responsável":resp}
-                try:
-                    uuid_nova = sync.obra_save(dados_nova)
-                except Exception:
-                    uuid_nova = None
+                uuid_nova = sync.obra_save(dados_nova)
+                if not uuid_nova:
+                    try:
+                        from db import sb_admin
+                        admin = sb_admin()
+                        if admin:
+                            from sync import _empresa_id
+                            payload = dict(dados_nova)
+                            payload["empresa_id"] = _empresa_id()
+                            r2 = admin.table("obras").insert(payload).execute()
+                            uuid_nova = r2.data[0]["id"] if r2.data else None
+                    except Exception:
+                        pass
                 st.session_state.obras = pd.concat([st.session_state.obras,pd.DataFrame([{"ID":_next_id(st.session_state.obras),"SB_ID":uuid_nova or "","Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat,"Responsável":resp}])],ignore_index=True)
                 _notify(f"✅ Obra **{nome}** cadastrada com sucesso!"); st.rerun()
 
@@ -1383,11 +1655,28 @@ def pagina_suprimentos():
             un_r      = c2.text_input("Unidade",  value="un", key="req_un")
             sol_r     = c1.text_input("Solicitante", key="req_sol")
             obs_r     = c2.text_input("Observação",  key="req_obs")
+            st.markdown("##### 🔗 Vinculação à EAP")
+            c3, c4 = st.columns(2)
+            tipo_custo_r = c3.selectbox("Tipo de Custo",
+                ["","Material","Mão-de-obra","Equipamento","Subempreiteiro","Administrativo"])
+            eap_item_id_r = None
+            try:
+                obra_uuid_r = _obra_uuid(obra_r)
+                if obra_uuid_r:
+                    df_eap_r = db.eap_itens_por_obra(obra_uuid_r)
+                    if not df_eap_r.empty:
+                        eap_opts_r = {f"{r['codigo']} — {r['descricao']} (R$ {_fmt(r['valor_previsto'])})": r['id'] for _, r in df_eap_r.iterrows()}
+                        eap_opts_r = {"(nenhum)": ""} | eap_opts_r
+                        eap_sel_r = c4.selectbox("Etapa EAP", list(eap_opts_r.keys()))
+                        eap_item_id_r = eap_opts_r[eap_sel_r] or None
+            except Exception:
+                pass
             ok_r      = st.form_submit_button("📝 Enviar Requisição", type="primary")
         if ok_r:
             dados_req = {"Data": date.today().strftime("%d/%m/%Y"), "Obra": obra_r,
                          "Insumo": insumo_r, "Quantidade": qtd_r, "Unidade": un_r,
-                         "Solicitante": sol_r, "Observação": obs_r}
+                         "Solicitante": sol_r, "Observação": obs_r,
+                         "eap_item_id": eap_item_id_r, "tipo_custo": tipo_custo_r or None}
             sb_id_novo = None
             try:
                 from sync import requisicao_save
@@ -1604,7 +1893,7 @@ def pagina_suprimentos():
                 st.session_state.contas_pagar = pd.concat([
                     st.session_state.contas_pagar,
                     pd.DataFrame([{"ID": _next_id(st.session_state.contas_pagar),
-                                   "SB_ID": uuid_cp_nf or "", **dados_cp_nf}])
+                                   "SB_ID": uuid_cp_nf or None, **dados_cp_nf}])
                 ], ignore_index=True)
                 st.success(
                     f"✅ Entrada registrada! Conta a Pagar de **{_fmt(val_nf)}** "
@@ -1624,8 +1913,8 @@ def pagina_financeiro():
     CAT_CORES = {"Materiais":"#2B59C3", "Folha de Pagamento":"#E67E22",
                  "Impostos":"#E74C3C",  "Outros":"#95A5A6"}
 
-    tab_pg, tab_rc, tab_novo, tab_custo = st.tabs(
-        ["💸 Contas a Pagar","💵 Contas a Receber","➕ Novo Lançamento","📊 Custos por Obra"]
+    tab_pg, tab_rc, tab_novo, tab_custo, tab_alocar = st.tabs(
+        ["💸 Contas a Pagar","💵 Contas a Receber","➕ Novo Lançamento","📊 Custos por Obra","🔗 Alocar Custos à EAP"]
     )
 
     def _tabela_financ(df_key):
@@ -1760,23 +2049,41 @@ def pagina_financeiro():
             val_l   = c2.number_input("Valor (R$)", min_value=0.0, step=100.0)
             venc_l  = c1.text_input("Vencimento (dd/mm/aaaa)", value=date.today().strftime("%d/%m/%Y"))
             nf_l    = c2.text_input("NF / Documento", value="—")
+            eap_item_id = None
+            tipo_custo_l = None
             if tipo_l == "Conta a Pagar":
                 c3,c4 = st.columns(2)
                 cat_l   = c3.selectbox("Categoria", CATS)
                 forma_l = c4.selectbox("Forma de Pagamento",
                                         ["Boleto","PIX","Transferência","Cartão","Cheque","A definir"])
+                st.markdown("##### 🔗 Vinculação à EAP")
+                c5,c6 = st.columns(2)
+                tipo_custo_l = c5.selectbox("Tipo de Custo",
+                    ["","Material","Mão-de-obra","Equipamento","Subempreiteiro","Administrativo"])
+                try:
+                    obra_uuid_for_eap = _obra_uuid(obra_l)
+                    if obra_uuid_for_eap:
+                        df_eap = db.eap_itens_por_obra(obra_uuid_for_eap)
+                        if not df_eap.empty:
+                            eap_opts = {f"{r['codigo']} — {r['descricao']} (R$ {_fmt(r['valor_previsto'])})": r['id'] for _, r in df_eap.iterrows()}
+                            eap_opts = {"(nenhum)": ""} | eap_opts
+                            eap_sel = c6.selectbox("Etapa EAP", list(eap_opts.keys()))
+                            eap_item_id = eap_opts[eap_sel] or None
+                except Exception:
+                    pass
             ok_l = st.form_submit_button("➕ Adicionar", type="primary")
         if ok_l:
             obra_uuid_l = _obra_uuid(obra_l)
             if tipo_l == "Conta a Pagar":
                 dados_cp = {"Obra": obra_l, "Fornecedor": contra, "Descrição": desc_l,
                             "Categoria": cat_l, "Valor (R$)": val_l, "Vencimento": venc_l,
-                            "Status": "A Pagar", "NF": nf_l, "Forma Pag.": forma_l}
+                            "Status": "A Pagar", "NF": nf_l, "Forma Pag.": forma_l,
+                            "eap_item_id": eap_item_id, "tipo_custo": tipo_custo_l}
                 uuid_l = sync.lancamento_save(dados_cp, "PAGAR", obra_uuid_l)
                 st.session_state.contas_pagar = pd.concat([
                     st.session_state.contas_pagar,
                     pd.DataFrame([{"ID": _next_id(st.session_state.contas_pagar),
-                                   "SB_ID": uuid_l or "", **dados_cp}])
+                                   "SB_ID": uuid_l or None, **dados_cp}])
                 ], ignore_index=True)
             else:
                 dados_cr = {"Obra": obra_l, "Cliente": contra, "Descrição": desc_l,
@@ -1785,7 +2092,7 @@ def pagina_financeiro():
                 st.session_state.contas_receber = pd.concat([
                     st.session_state.contas_receber,
                     pd.DataFrame([{"ID": _next_id(st.session_state.contas_receber),
-                                   "SB_ID": uuid_l or "", **dados_cr}])
+                                   "SB_ID": uuid_l or None, **dados_cr}])
                 ], ignore_index=True)
             _tipo_msg = "Conta a Pagar" if tipo_l == "Conta a Pagar" else "Conta a Receber"
             _notify(f"✅ {_tipo_msg} de **{_fmt(val_l)}** para **{obra_l}** adicionada!"); st.rerun()
@@ -1879,6 +2186,252 @@ def pagina_financeiro():
             st.dataframe(ex_c, width='stretch', hide_index=True)
         else:
             st.info(f"Nenhum lançamento de Contas a Pagar registrado para **{obra_c}**.")
+
+    # ── Alocar Custos à EAP ────────────────────────────────────────────────
+    with tab_alocar:
+        st.subheader("🔗 Alocar Custos à EAP")
+        st.caption("Vincula lançamentos de Contas a Pagar a etapas da EAP que ainda não foram classificados.")
+        al_obras = _obras_nomes()
+        al_obra = st.selectbox("Obra", al_obras, key="al_obra_sel")
+        if al_obra:
+            al_uuid = _obra_uuid(al_obra)
+            df_cp = st.session_state.contas_pagar.copy()
+            df_cp_obra = df_cp[
+                (df_cp["Obra"] == al_obra) &
+                (df_cp["eap_item_id"].isna() | (df_cp["eap_item_id"].astype(str).isin(["", "None", "nan"])))
+            ].copy()
+            if df_cp_obra.empty:
+                st.success("✅ Todos os lançamentos desta obra já estão vinculados a uma etapa EAP!")
+            else:
+                st.info(f"**{len(df_cp_obra)}** lançamento(s) aguardando classificação.")
+                df_eap_al = db.eap_itens_por_obra(al_uuid) if al_uuid else pd.DataFrame()
+                if df_eap_al.empty:
+                    st.warning("Nenhuma etapa EAP cadastrada para esta obra. Crie a EAP primeiro.")
+                else:
+                    eap_opts_al = {f"{r['codigo']} — {r['descricao']}": r['id'] for _, r in df_eap_al.iterrows()}
+                    eap_opts_al = {"(não classificar)": ""} | eap_opts_al
+                    with st.form("form_alocar_eap"):
+                        alocacoes = {}
+                        for idx, row_l in df_cp_obra.iterrows():
+                            cols = st.columns([3, 2, 3])
+                            cols[0].markdown(f"**{row_l.get('Descrição', '—')}**")
+                            cols[1].markdown(f"R$ {row_l.get('Valor (R$)', 0):.2f}")
+                            eap_key = f"al_eap_{idx}"
+                            alocacoes[idx] = cols[2].selectbox(
+                                "Etapa EAP", list(eap_opts_al.keys()),
+                                key=eap_key, label_visibility="collapsed"
+                            )
+                        salvar_al = st.form_submit_button("💾 Salvar Alocações", type="primary")
+                    if salvar_al:
+                        from db import lancamento_atualizar
+                        import traceback
+                        ok_count = 0
+                        for idx, eap_sel in alocacoes.items():
+                            eap_id = eap_opts_al[eap_sel] or None
+                            sb_id = df_cp_obra.at[idx, "SB_ID"]
+                            try:
+                                if sb_id:
+                                    lancamento_atualizar(sb_id, {"eap_item_id": eap_id})
+                                    st.session_state.contas_pagar.at[idx, "eap_item_id"] = eap_id
+                                    ok_count += 1
+                            except Exception:
+                                print(f"[alocar] ERRO idx={idx} sb_id={sb_id}:\n{traceback.format_exc()}")
+                        _notify(f"✅ {ok_count} lançamento(s) vinculado(s) à EAP com sucesso!")
+                        st.rerun()
+
+
+# ── Orçado x Realizado ────────────────────────────────────────────────────────
+
+_TIPO_CUSTO_CORES = {
+    "Material": "#2B59C3", "Mão-de-obra": "#E67E22",
+    "Equipamento": "#8E44AD", "Subempreiteiro": "#27AE60",
+    "Administrativo": "#95A5A6", "Impostos": "#E74C3C",
+}
+
+def _exibir_oxr(obra_uuid: str, obra_nome: str):
+    """Componente reutilizável de Orçado x Realizado (KPIs, Etapa EAP, Curva S, Categoria)."""
+    try:
+        df_ov = db.orcado_realizado_por_obra(obra_uuid)
+        df_lc = db.lancamentos_listar("PAGAR")
+        df_lc_rec = db.lancamentos_listar("RECEBER")
+    except Exception as e:
+        st.error(f"Erro ao carregar dados: {e}")
+        return
+
+    df_lc_obra = df_lc[df_lc["obra_id"] == obra_uuid].copy() if not df_lc.empty else pd.DataFrame()
+    df_lc_rec_obra = df_lc_rec[df_lc_rec["obra_id"] == obra_uuid].copy() if not df_lc_rec.empty else pd.DataFrame()
+    total_orcado = df_ov["orcado"].sum() if not df_ov.empty else 0
+    total_realizado = df_ov["realizado"].sum() if not df_ov.empty else 0
+
+    df_resumo = db.resumo_obras_listar()
+    df_res_obra = df_resumo[df_resumo["obra_id"] == obra_uuid] if not df_resumo.empty else pd.DataFrame()
+    pct_fisico = float(df_res_obra["pct_fisico_medio"].iloc[0]) if not df_res_obra.empty else 0.0
+
+    custo_projetado = (total_realizado / (pct_fisico / 100)) if pct_fisico > 0 else 0
+    margem_projetada = ((total_orcado - custo_projetado) / total_orcado * 100) if total_orcado > 0 else 0
+    desvio_total = total_orcado - total_realizado
+    desvio_pct = ((total_realizado - total_orcado) / total_orcado * 100) if total_orcado > 0 else 0
+
+    if margem_projetada >= 15:
+        semaforo = "🟢"; sem_cor = "normal"
+    elif margem_projetada >= 5:
+        semaforo = "🟡"; sem_cor = "off"
+    else:
+        semaforo = "🔴"; sem_cor = "inverse"
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Orçado Total", _fmt(total_orcado))
+    c2.metric("Realizado Total", _fmt(total_realizado))
+    c3.metric(f"{semaforo} Margem Projetada", f"{margem_projetada:+.1f}%",
+              delta=f"Custo Proj: {_fmt(custo_projetado)}", delta_color=sem_cor)
+    c4.metric("Custo Projetado Final", _fmt(custo_projetado) if custo_projetado > 0 else "—")
+    c5.metric("% Físico Médio", f"{pct_fisico:.1f}%" if pct_fisico > 0 else "—")
+
+    st.caption(
+        f"Desvio {_fmt(desvio_total)}  ·  {desvio_pct:+.1f}% em relação ao orçado  ·  "
+        f"Semáforo: {semaforo} {'acima da meta' if margem_projetada >= 15 else 'dentro da margem' if margem_projetada >= 5 else 'abaixo da meta (atenção)'}"
+    )
+
+    tab_etapa, tab_curva, tab_cat = st.tabs(["🔬 Por Etapa EAP", "📈 Curva S", "🏷️ Por Categoria"])
+
+    with tab_etapa:
+        st.subheader("Detalhamento por Etapa EAP")
+        if df_ov.empty:
+            try:
+                df_eap = db.eap_itens_por_obra(obra_uuid)
+                tem_eap = not df_eap.empty
+            except Exception:
+                tem_eap = False
+            if not tem_eap:
+                st.warning(
+                    "Esta obra não possui **EAP (Estrutura Analítica de Projeto)** gerada.\n\n"
+                    "1. Vá em **Orçamento** e importe uma planilha de orçamento para esta obra\n"
+                    "2. Vá em **Planejamento (EAP)** e clique em **Gerar EAP no Banco**\n"
+                    "3. Volte aqui para ver o comparativo Orçado x Realizado"
+                )
+            else:
+                st.info(
+                    "A obra possui EAP, mas **nenhum lançamento financeiro** vinculado às etapas.\n\n"
+                    "Vá em **Financeiro** → Novo Lançamento e selecione a etapa EAP e o tipo de custo."
+                )
+        else:
+            for _, r in df_ov.iterrows():
+                orc = r.get("orcado", 0) if pd.notna(r.get("orcado")) else 0
+                real = r.get("realizado", 0) if pd.notna(r.get("realizado")) else 0
+                dv = r.get("desvio", 0) if pd.notna(r.get("desvio")) else 0
+                dv_pct = r.get("desvio_pct", 0) if pd.notna(r.get("desvio_pct")) else 0
+                pct_exec = (real / orc * 100) if orc > 0 else 0
+                if dv_pct <= -15:
+                    cor = "🟢"
+                elif dv_pct <= 5:
+                    cor = "🟡"
+                else:
+                    cor = "🔴"
+                with st.container(border=True):
+                    cols = st.columns([3,1,1,1,1])
+                    cols[0].markdown(f"**{r['eap_codigo']}** — {r['etapa']}")
+                    cols[1].metric("Orçado", _fmt(orc))
+                    cols[2].metric("Realizado", _fmt(real))
+                    cols[3].metric(f"Desvio {cor}", _fmt(dv), delta=f"{dv_pct:+.1f}%",
+                                   delta_color="normal" if dv >= 0 else "inverse")
+                    cols[4].markdown(f"<div style='text-align:center;font-size:24px;margin-top:10px;'>{pct_exec:.0f}%</div>", unsafe_allow_html=True)
+                    st.progress(min(pct_exec / 100.0, 1.0), text=f"{pct_exec:.1f}% executado do orçado")
+
+            df_plot = df_ov.melt(id_vars=["eap_codigo","etapa"], value_vars=["orcado","realizado"],
+                                 var_name="Tipo", value_name="Valor")
+            fig_et = px.bar(df_plot, x="etapa", y="Valor", color="Tipo", barmode="group",
+                            title="Orçado vs Realizado por Etapa",
+                            color_discrete_map={"orcado":"#2B59C3","realizado":"#27AE60"},
+                            labels={"etapa":"","Valor":"R$"})
+            fig_et.update_layout(height=380, plot_bgcolor="white", paper_bgcolor="white",
+                                 yaxis_tickformat=",.0f", margin=dict(t=40,b=80))
+            st.plotly_chart(fig_et, use_container_width=True)
+
+            fig_dv = px.bar(df_ov, x="etapa", y="desvio", title="Desvio por Etapa (positivo = abaixo do orçado)",
+                            color="desvio", color_continuous_scale=["red","yellow","green"],
+                            labels={"etapa":"","desvio":"R$"})
+            fig_dv.update_layout(height=300, plot_bgcolor="white", paper_bgcolor="white",
+                                 yaxis_tickformat=",.0f", margin=dict(t=40,b=80))
+            st.plotly_chart(fig_dv, use_container_width=True)
+
+    with tab_curva:
+        st.subheader("Curva S — Desembolso Financeiro")
+        if not df_lc_obra.empty and "data_vencimento" in df_lc_obra.columns:
+            df_lc_obra["_mes"] = pd.to_datetime(df_lc_obra["data_vencimento"], errors="coerce").dt.to_period("M").astype(str)
+            df_mensal = df_lc_obra.groupby("_mes")["valor"].sum().reset_index().sort_values("_mes")
+            df_mensal["acum"] = df_mensal["valor"].cumsum()
+            tem_receita = not df_lc_rec_obra.empty and "data_vencimento" in df_lc_rec_obra.columns
+            if tem_receita:
+                df_lc_rec_obra["_mes"] = pd.to_datetime(df_lc_rec_obra["data_vencimento"], errors="coerce").dt.to_period("M").astype(str)
+                df_rec_mensal = df_lc_rec_obra.groupby("_mes")["valor"].sum().reset_index().sort_values("_mes")
+                df_rec_mensal["acum"] = df_rec_mensal["valor"].cumsum()
+            if not df_mensal.empty:
+                meses = df_mensal["_mes"].tolist()
+                if total_orcado > 0 and len(meses) > 1:
+                    import numpy as np
+                    from scipy.special import erf as _erf
+                    n = len(meses); _x = np.linspace(-2.0, 2.0, n)
+                    curva_s_plan = (_erf(_x) + 1.0) / 2.0 * total_orcado
+                    meses_plot = meses * (3 if tem_receita else 2)
+                    valores = [curva_s_plan, df_mensal["acum"].values]
+                    tipos = ["Planejado"] * n + ["Realizado (Despesa)"] * n
+                    if tem_receita:
+                        valores.append(df_rec_mensal["acum"].values)
+                        tipos += ["Medido (Receita)"] * n
+                    df_curva = pd.DataFrame({"Mês": meses_plot, "Valor Acumulado (R$)": np.concatenate(valores), "Tipo": tipos})
+                    fig_cv = px.line(df_curva, x="Mês", y="Valor Acumulado (R$)", color="Tipo", markers=True,
+                                     color_discrete_map={"Planejado":"#2B59C3","Realizado (Despesa)":"#E67E22","Medido (Receita)":"#27AE60"},
+                                     title="Curva S — Orçado vs Realizado Acumulado")
+                    fig_cv.add_hline(y=total_orcado, line_dash="dot", line_color="#888", line_width=1,
+                                     annotation_text=f"Orçado Total: {_fmt(total_orcado)}")
+                    fig_cv.update_layout(height=400, plot_bgcolor="white", paper_bgcolor="white",
+                                         yaxis_tickformat=",.0f", margin=dict(t=40,b=20))
+                    st.plotly_chart(fig_cv, use_container_width=True)
+                elif len(meses) <= 1:
+                    st.info("São necessários pelo menos 2 meses de dados para a Curva S.")
+                else:
+                    st.info("Orçado total é zero — não é possível calcular a Curva S.")
+            else:
+                st.info("Nenhum lançamento com data de vencimento válida.")
+        else:
+            st.info("Nenhum lançamento de Contas a Pagar encontrado para esta obra.")
+
+    with tab_cat:
+        st.subheader("Análise por Tipo de Custo")
+        if not df_lc_obra.empty and "tipo_custo" in df_lc_obra.columns:
+            df_cat = df_lc_obra.copy()
+            df_cat["tipo_custo"] = df_cat["tipo_custo"].fillna("Não classificado")
+            df_agrup = df_cat.groupby("tipo_custo")["valor"].sum().reset_index().sort_values("valor", ascending=False)
+            total_cat = df_agrup["valor"].sum()
+            c1c, c2c = st.columns(2)
+            c1c.metric("Total Lançado", _fmt(total_cat))
+            c2c.metric("Categorias", df_agrup["tipo_custo"].nunique())
+            fig_cat = px.pie(df_agrup, values="valor", names="tipo_custo", hole=0.4,
+                             title="Distribuição por Tipo de Custo",
+                             color="tipo_custo", color_discrete_map=_TIPO_CUSTO_CORES)
+            fig_cat.update_traces(textinfo="percent+label", textposition="outside")
+            fig_cat.update_layout(height=350, margin=dict(t=40,b=10))
+            st.plotly_chart(fig_cat, use_container_width=True)
+            st.dataframe(df_agrup.style.format({"valor": _fmt}), hide_index=True, use_container_width=True)
+        else:
+            st.info("Nenhum lançamento classificado por tipo de custo. Use o campo 'Tipo de Custo' ao lançar.")
+
+
+def pagina_orcado_realizado():
+    st.title("📊 Orçado x Realizado")
+    _init()
+    _show_toast()
+    obras_nomes = _obras_nomes()
+    obra_sel = st.selectbox("Selecione a obra", obras_nomes, key="oxr_obra_sel",
+                            index=0 if obras_nomes else 0)
+    if not _obra_valida(obra_sel):
+        st.info("Selecione uma obra para visualizar os dados de Orçado x Realizado.")
+        return
+    obra_uuid = _obra_uuid(obra_sel)
+    if not obra_uuid:
+        st.warning("Obra não encontrada.")
+        return
+    _exibir_oxr(obra_uuid, obra_sel)
 
 
 # ── Pessoal ───────────────────────────────────────────────────────────────────
@@ -2009,7 +2562,7 @@ def pagina_pessoal():
             st.session_state.ponto = pd.concat([
                 st.session_state.ponto,
                 pd.DataFrame([{"ID": _next_id(st.session_state.ponto),
-                               "SB_ID": _uuid_pt or "", **_dado_pt}])
+                               "SB_ID": _uuid_pt or None, **_dado_pt}])
             ], ignore_index=True)
             _notify(f"Falta de **{func_p}** em {data_p} registrada."); st.rerun()
 
@@ -2058,7 +2611,7 @@ def pagina_pessoal():
             st.session_state.ponto_registros = pd.concat([
                 st.session_state.ponto_registros,
                 pd.DataFrame([{"ID": _next_id(st.session_state.ponto_registros),
-                               "SB_ID": _uuid_reg or "", **_dado_reg}])
+                               "SB_ID": _uuid_reg or None, **_dado_reg}])
             ], ignore_index=True)
             _notify(f"Ponto de **{func_reg}** em {data_reg} registrado: "
                     f"{horas_normais:.1f}h normais" + (f" + {horas_extras:.1f}h extras" if horas_extras > 0 else "") + "."); st.rerun()
@@ -2173,6 +2726,14 @@ def pagina_pessoal():
                                          key="folha_ref_mes")
                 venc_folha = st.text_input("Vencimento", key="folha_venc",
                                             value=(date.today() + timedelta(days=5)).strftime("%d/%m/%Y"))
+                obra_uuid_folha = _obra_uuid(ob_lanc)
+                df_eap_folha = db.eap_itens_por_obra(obra_uuid_folha) if obra_uuid_folha else pd.DataFrame()
+                eap_opts_folha = [""] + [f"{r['codigo']} — {r['descricao']}" for _, r in df_eap_folha.iterrows()] if not df_eap_folha.empty else [""]
+                eap_sel_folha = st.selectbox("Etapa EAP", eap_opts_folha, key="folha_eap")
+                tc_folha = st.selectbox("Tipo de Custo",
+                    ["Mão-de-obra", "Material", "Equipamento", "Subempreiteiro", "Administrativo", "Impostos"],
+                    index=0, key="folha_tc")
+                eap_id_folha = str(df_eap_folha.iloc[eap_opts_folha.index(eap_sel_folha) - 1]["id"]) if eap_sel_folha and not df_eap_folha.empty else None
                 ff_lanc = ff_all[ff_all["Obra"] == ob_lanc].copy()
                 bruto_lanc  = ff_lanc["Salário (R$)"].apply(_to_num).sum()
                 inss_pat    = round(bruto_lanc * 0.20, 2)
@@ -2202,13 +2763,15 @@ def pagina_pessoal():
                             "Descrição": desc_folha, "Categoria": "Folha de Pagamento",
                             "Valor (R$)": custo_emp, "Vencimento": venc_folha,
                             "Status": "A Pagar", "NF": "—", "Forma Pag.": "Transferência",
+                            "eap_item_id": eap_id_folha,
+                            "tipo_custo": tc_folha if tc_folha else None,
                         }
-                        uuid_folha = sync.lancamento_save(dados_folha, "PAGAR", _obra_uuid(ob_lanc))
+                        uuid_folha = sync.lancamento_save(dados_folha, "PAGAR", obra_uuid_folha)
                         st.session_state.contas_pagar = pd.concat([
                             st.session_state.contas_pagar,
                             pd.DataFrame([{
                                 "ID":    _next_id(st.session_state.contas_pagar),
-                                "SB_ID": uuid_folha or "",
+                                "SB_ID": uuid_folha or None,
                                 **dados_folha,
                             }])
                         ], ignore_index=True)
@@ -2250,7 +2813,7 @@ def pagina_pessoal():
                 st.session_state.funcionarios = pd.concat([
                     st.session_state.funcionarios,
                     pd.DataFrame([{"ID": _next_id(st.session_state.funcionarios),
-                                   "SB_ID": uuid_col or "", **dados_col}])
+                                   "SB_ID": uuid_col or None, **dados_col}])
                 ], ignore_index=True)
                 _notify(f"✅ Colaborador **{nome_nf}** ({cargo_nf}) cadastrado com sucesso!"); st.rerun()
 
@@ -2456,18 +3019,38 @@ def _nivel_eap(codigo):
 def _processar_orcamento(df, col_cod, col_desc, col_un, col_qtd, col_preco, bdi_pct=25.0):
     """
     State machine linha-a-linha para classificar ETAPA vs ITEM.
-    As colunas numéricas (Qtd e Preço) são limpas de forma vetorizada
-    por _limpar_col_num() antes do loop — sem chamar _to_num por linha.
+    Retorna (resultado, avisos) onde avisos é uma lista de
+    {linha, tipo, mensagem} para exibir ao usuário.
     """
     bdi_fator   = 1 + (bdi_pct / 100)
     resultado   = []
     etapa_stack = {}
+    avisos      = []
+    tem_multiplas_abas = "_aba_origem" in df.columns
+
+    # ── Valida se as colunas selecionadas existem no DataFrame ────────
+    cols_obrig = {"Código": col_cod, "Descrição": col_desc,
+                  "Unidade": col_un, "Quantidade": col_qtd, "Preço Unit.": col_preco}
+    for nome, col in cols_obrig.items():
+        if col != "(ignorar)" and col not in df.columns:
+            avisos.append({"linha": 0, "tipo": "ERRO",
+                           "mensagem": f"Coluna '{col}' selecionada para '{nome}' não existe na planilha."})
 
     # ── Limpeza vetorizada das colunas numéricas (uma passagem por coluna) ──
     _nan_series = pd.Series([float("nan")] * len(df), dtype=float, index=df.index)
     ser_qtd   = _limpar_col_num(df[col_qtd])   if col_qtd   != "(ignorar)" else _nan_series
     ser_preco = _limpar_col_num(df[col_preco]) if col_preco != "(ignorar)" else _nan_series
 
+    # ── Verifica quantas células tiveram falha de conversão numérica ──
+    if col_qtd != "(ignorar)":
+        n_coerce_qtd = int(pd.isna(df[col_qtd]).sum() == 0 and (ser_qtd == 0.0).sum() or
+                           (pd.to_numeric(pd.Series(df[col_qtd]), errors='coerce').isna().sum()))
+    if col_preco != "(ignorar)":
+        pass  
+
+    _aba_atual = None
+    qtd_falha = 0
+    preco_falha = 0
     for i, (_, row) in enumerate(df.iterrows()):
         codigo = (str(row[col_cod]).strip()
                   if col_cod != "(ignorar)" and pd.notna(row.get(col_cod, float("nan")))
@@ -2487,7 +3070,32 @@ def _processar_orcamento(df, col_cod, col_desc, col_un, col_qtd, col_preco, bdi_
         if not desc:
             continue
 
+        # ── Troca de aba (multi-sheet "Todas as abas") ────────────────
+        if tem_multiplas_abas:
+            aba_row = str(row.get("_aba_origem", ""))
+            if aba_row and aba_row != _aba_atual:
+                _aba_atual = aba_row
+                etapa_stack = {1: _aba_atual}
+                resultado.append({
+                    "ordem": _aba_atual, "tipo": "ETAPA", "nivel": 1,
+                    "descricao": _aba_atual, "unidade": "", "quantidade": None,
+                    "preco_custo": None, "preco_venda": None,
+                    "total_custo": None, "total_venda": None,
+                    "etapa_pai": "",
+                })
+
         nivel   = _nivel_eap(codigo) if codigo else 1
+
+        # ── Detecta falha de parsing numérico ───────────────────────
+        if col_qtd != "(ignorar)" and pd.notna(row.get(col_qtd)) and str(row[col_qtd]).strip():
+            raw_q = str(row[col_qtd]).strip()
+            if qtd_v == 0.0 and raw_q not in ("0","0,0","0.0",""):
+                qtd_falha += 1
+        if col_preco != "(ignorar)" and pd.notna(row.get(col_preco)) and str(row[col_preco]).strip():
+            raw_p = str(row[col_preco]).strip()
+            if preco_v == 0.0 and raw_p not in ("0","0,0","0.0",""):
+                preco_falha += 1
+
         is_item = qtd is not None and preco is not None and qtd > 0 and preco > 0
 
         if not is_item:
@@ -2516,7 +3124,15 @@ def _processar_orcamento(df, col_cod, col_desc, col_un, col_qtd, col_preco, bdi_
                 "total_venda": round(total_venda, 2),
                 "etapa_pai": pai,
             })
-    return resultado
+
+    # ── Avisos consolidados ──────────────────────────────────────────
+    if qtd_falha:
+        avisos.append({"linha": 0, "tipo": "ADVERTÊNCIA",
+                       "mensagem": f"{qtd_falha} linha(s) com quantidade não numérica (convertida para 0)."})
+    if preco_falha:
+        avisos.append({"linha": 0, "tipo": "ADVERTÊNCIA",
+                       "mensagem": f"{preco_falha} linha(s) com preço unitário não numérico (convertido para 0)."})
+    return resultado, avisos
 
 
 def _exibir_orcamento_processado(resultado, obra_orc, bdi_pct, nome_orc):
@@ -2534,8 +3150,11 @@ def _exibir_orcamento_processado(resultado, obra_orc, bdi_pct, nome_orc):
     c4.metric("Total Venda",         _fmt(total_venda))
     st.markdown("---")
 
-    tab_arv, tab_it, tab_res, tab_exp = st.tabs(
-        ["🌳 Árvore EAP", "📋 Itens de Serviço", "📊 Resumo por Etapa", "⬇️ Exportar"]
+    if "orcamento_composicoes" not in st.session_state:
+        st.session_state.orcamento_composicoes = {}
+
+    tab_arv, tab_it, tab_res, tab_comp, tab_exp = st.tabs(
+        ["🌳 Árvore EAP", "📋 Itens de Serviço", "📊 Resumo por Etapa", "🧩 Composições", "⬇️ Exportar"]
     )
 
     with tab_arv:
@@ -2592,6 +3211,73 @@ def _exibir_orcamento_processado(resultado, obra_orc, bdi_pct, nome_orc):
             resumo_ex.columns = ["Etapa","Total Custo","Total Venda","% Total"]
             st.dataframe(resumo_ex, width='stretch', hide_index=True)
 
+    with tab_comp:
+        st.subheader("Gerenciar Composições")
+        st.caption("Marque itens como 'Composição' para permitir o desdobramento em insumos.")
+        if len(itens):
+            ordens = sorted(itens["ordem"].unique())
+            sel_comp = st.multiselect(
+                "Selecione os itens que são composições",
+                options=[(r["ordem"], r["descricao"]) for _, r in itens.iterrows()],
+                format_func=lambda x: f"{x[0]} — {x[1][:60]}",
+                default=[k for k in st.session_state.orcamento_composicoes if k in list(itens["ordem"])],
+                key="comp_sel"
+            )
+            if st.button("💾 Salvar marcações de composição", key="btn_save_comp_mark"):
+                st.session_state.orcamento_composicoes = {
+                    r["ordem"]: {"descricao": r["descricao"], "insumos": st.session_state.orcamento_composicoes.get(r["ordem"], {}).get("insumos", [])}
+                    for r in itens.to_dict("records") if r["ordem"] in [s[0] for s in sel_comp]
+                }
+                _notify(f"✅ {len(st.session_state.orcamento_composicoes)} composição(ões) marcada(s)!")
+                st.rerun()
+
+            if st.session_state.orcamento_composicoes:
+                st.markdown("---")
+                st.subheader("Desdobramento de Composições")
+                for cod, comp_data in st.session_state.orcamento_composicoes.items():
+                    with st.expander(f"📦 {cod} — {comp_data['descricao'][:60]}", expanded=False):
+                        insumos = comp_data.get("insumos", [])
+                        if insumos:
+                            st.dataframe(pd.DataFrame(insumos), width='stretch', hide_index=True)
+                        else:
+                            st.info("Nenhum insumo cadastrado para esta composição.")
+                        st.markdown("**Adicionar insumo manualmente**")
+                        ic1, ic2, ic3, ic4 = st.columns(4)
+                        novo_ins = {
+                            "codigo": ic1.text_input("Código", key=f"comp_i_cod_{cod}"),
+                            "descricao": ic2.text_input("Descrição", key=f"comp_i_desc_{cod}"),
+                            "unidade": ic3.text_input("Un", value="un", key=f"comp_i_un_{cod}"),
+                            "quantidade": ic4.number_input("Quantidade (por un. da comp.)", min_value=0.0, step=0.001, format="%.4f", key=f"comp_i_qtd_{cod}"),
+                        }
+                        if st.button("➕ Adicionar insumo", key=f"comp_add_{cod}"):
+                            if novo_ins["descricao"].strip():
+                                st.session_state.orcamento_composicoes[cod]["insumos"].append(novo_ins)
+                                st.rerun()
+                        st.markdown("---")
+                        ins_up = st.file_uploader(
+                            f"📤 Upload de insumos para {cod} (.xlsx, .csv)",
+                            type=["xlsx", "csv"], key=f"comp_up_{cod}"
+                        )
+                        if ins_up is not None:
+                            try:
+                                if ins_up.name.endswith(".csv"):
+                                    df_up = pd.read_csv(ins_up, dtype=str)
+                                else:
+                                    df_up = pd.read_excel(ins_up, dtype=str)
+                                for _, r in df_up.iterrows():
+                                    st.session_state.orcamento_composicoes[cod]["insumos"].append({
+                                        "codigo": str(r.iloc[0]) if pd.notna(r.iloc[0]) else "",
+                                        "descricao": str(r.iloc[1]) if len(r) > 1 and pd.notna(r.iloc[1]) else "",
+                                        "unidade": str(r.iloc[2]) if len(r) > 2 and pd.notna(r.iloc[2]) else "un",
+                                        "quantidade": float(str(r.iloc[3]).replace(",", ".")) if len(r) > 3 and pd.notna(r.iloc[3]) else 0.0,
+                                    })
+                                _notify(f"✅ {len(df_up)} insumos importados para {cod}!")
+                                st.rerun()
+                            except Exception as _e_up:
+                                st.error(f"Erro ao ler arquivo: {_e_up}")
+        else:
+            st.info("Nenhum item processado para gerenciar composições.")
+
     with tab_exp:
         buf = io.BytesIO()
         pd.DataFrame([{
@@ -2643,11 +3329,18 @@ def pagina_orcamento():
     _init()
     _show_toast()
 
-    # ── Parâmetros (tabela: orcamentos) ────────────────────────────────────
-    with st.expander("⚙️ Parâmetros do Orçamento", expanded=True):
-        # Linha 1 — identificação
-        r1c1, r1c2, r1c3, r1c4 = st.columns(4)
-        obra_orc    = r1c1.selectbox("Obra", _obras_nomes(), key="orc_obra")
+    tab_imp, tab_oxr = st.tabs(["📂 Importar / Processar", "📊 Orçado x Realizado"])
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # TAB 1 — Importar / Processar
+    # ═══════════════════════════════════════════════════════════════════════
+    with tab_imp:
+
+        # ── Parâmetros (tabela: orcamentos) ────────────────────────────────
+        with st.expander("⚙️ Parâmetros do Orçamento", expanded=True):
+            # Linha 1 — identificação
+            r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+            obra_orc    = r1c1.selectbox("Obra", _obras_nomes(), key="orc_obra")
         nome_orc    = r1c2.text_input("Nome", value="Orçamento Rev.1", key="orc_nome")
         base_ref    = r1c3.text_input("Base de Referência", value="SINAPI Mai/2026", key="orc_base")
         bdi_incluso = r1c4.checkbox("BDI já incluso na planilha", key="orc_bdi_incluso", value=True,
@@ -2673,22 +3366,69 @@ def pagina_orcamento():
 
     arquivo = st.file_uploader("Planilha de itens (.xlsx, .xls ou .csv)", type=["xlsx","xls","csv"])
 
-    # ── Carregamento bruto ──────────────────────────────────────────────────
-    # Só relê (e reseta orcamento_mapped) quando o arquivo for diferente do anterior.
-    # Se simplesmente comparar `arquivo is not None` em todo render, o resultado
-    # processado seria apagado imediatamente após cada st.rerun().
+    # ── Detecção de abas (multi-sheet) ──────────────────────────────────────
+    if "orcamento_sheets" not in st.session_state:
+        st.session_state.orcamento_sheets = []
+    if "orcamento_bytes" not in st.session_state:
+        st.session_state.orcamento_bytes = None
+
+    import io as _io
     if arquivo is not None and arquivo.name != st.session_state.get("orcamento_nome"):
+        raw = arquivo.read()
+        st.session_state.orcamento_bytes = raw
+        st.session_state.orcamento_nome  = arquivo.name
+        st.session_state.orcamento_mapped = None
+        st.session_state.orcamento_df_raw = None
+        if arquivo.name.lower().endswith(".csv"):
+            st.session_state.orcamento_sheets = []
+        else:
+            try:
+                xls = pd.ExcelFile(_io.BytesIO(raw))
+                st.session_state.orcamento_sheets = xls.sheet_names
+            except Exception:
+                st.session_state.orcamento_sheets = []
+
+    sheets = st.session_state.orcamento_sheets
+    if sheets:
+        aba_opts = ["Todas as abas"] + sheets
+        abas_visiveis = len(sheets) > 1
+    else:
+        aba_opts = ["Única aba"]
+        abas_visiveis = False
+
+    aba_sel = st.selectbox("Selecionar aba da planilha", aba_opts,
+                           key="orc_aba", disabled=not abas_visiveis)
+
+    # ── Carregamento bruto ──────────────────────────────────────────────────
+    # Só relê (e reseta orcamento_mapped) quando o arquivo ou a aba mudar.
+    _file_or_aba_mudou = (arquivo is not None and
+                          arquivo.name == st.session_state.get("orcamento_nome") and
+                          (st.session_state.orcamento_df_raw is None or
+                           st.session_state.get("_orc_aba_anterior") != aba_sel))
+    if _file_or_aba_mudou:
         try:
+            raw = st.session_state.orcamento_bytes
+            if raw is None:
+                raise ValueError("Bytes do arquivo não disponíveis.")
             if arquivo.name.lower().endswith(".csv"):
-                df_raw = pd.read_csv(arquivo, sep=None, engine="python",
-                                     encoding="utf-8-sig", header=None,
-                                     dtype=str)
+                df_raw = pd.read_csv(_io.BytesIO(raw), sep=None, engine="python",
+                                     encoding="utf-8-sig", header=None, dtype=str)
+            elif aba_sel == "Todas as abas":
+                dict_raw = pd.read_excel(_io.BytesIO(raw), sheet_name=None, header=None, dtype=str)
+                # Empilha todas as abas, anotando a origem
+                partes = []
+                for nome_aba, df_aba in dict_raw.items():
+                    df_aba = df_aba.copy()
+                    df_aba["_aba_origem"] = nome_aba
+                    partes.append(df_aba)
+                df_raw = pd.concat(partes, ignore_index=True)
             else:
-                df_raw = pd.read_excel(arquivo, header=None, dtype=str)
-            st.session_state.orcamento_df_raw = df_raw
-            st.session_state.orcamento_nome   = arquivo.name
-            st.session_state.orcamento_mapped = None
-            st.success(f"'{arquivo.name}' carregado — {len(df_raw)} linhas × {len(df_raw.columns)} colunas brutas.")
+                df_raw = pd.read_excel(_io.BytesIO(raw), sheet_name=aba_sel,
+                                       header=None, dtype=str)
+            st.session_state.orcamento_df_raw  = df_raw
+            st.session_state.orcamento_mapped  = None
+            st.session_state._orc_aba_anterior = aba_sel
+            st.success(f"'{arquivo.name}' [{aba_sel}] — {len(df_raw)} linhas × {len(df_raw.columns)} colunas brutas.")
         except Exception as e:
             st.error(f"Erro ao ler arquivo: {e}")
 
@@ -2716,7 +3456,9 @@ def pagina_orcamento():
         df_h.columns = [str(v).strip() if pd.notna(v) else f"Col_{i}"
                         for i, v in enumerate(df_raw.iloc[int(hdr)].values)]
         df_h = df_h.reset_index(drop=True)
-        avail = ["(ignorar)"] + list(df_h.columns)
+        # Remove _aba_origem da interface (é metadado interno)
+        _cols_visiveis = [c for c in df_h.columns if c != "_aba_origem"]
+        avail = ["(ignorar)"] + _cols_visiveis
 
         # ── Passo 2: mapeamento de colunas ─────────────────────────────
         st.subheader("2️⃣ Mapeamento de Colunas")
@@ -2726,26 +3468,34 @@ def pagina_orcamento():
 
         def _guess(kws):
             """
-            Retorna a primeira coluna cujo nome normalizado contém alguma
-            das palavras-chave (também normalizadas).
-            Testa as keywords mais longas primeiro para evitar falsos positivos.
-            Para keywords < 3 chars aceita apenas match EXATO (evita "un" em "fundacao").
+            Retorna a coluna com melhor correspondência.
+            1. Match exato com keyword mais longa → maior pontuação
+            2. Match substring com keyword >= 3 chars → pontuação menor
+            Evita falsos positivos de "item" dentro de "composicao do item".
             """
-            kws_n = sorted([_norm_col(k) for k in kws], key=len, reverse=True)
-            for kw in kws_n:
-                for col, cn in _cols_norm.items():
-                    if kw == cn:                        # match exato (qualquer tamanho)
-                        return col
-                    if len(kw) >= 3 and kw in cn:       # substring apenas se kw >= 3 chars
-                        return col
-            return "(ignorar)"
+            best_col = "(ignorar)"
+            best_score = -1
+            kws_norm = {_norm_col(k): k for k in kws}
+            for col, cn in _cols_norm.items():
+                for nk in kws_norm:
+                    if nk == cn:
+                        score = 100 + len(nk)
+                    elif len(nk) >= 3 and nk in cn:
+                        score = len(nk)
+                    else:
+                        continue
+                    if score > best_score:
+                        best_score = score
+                        best_col = col
+            return best_col
 
         def _idx(col):
             return avail.index(col) if col in avail else 0
 
         # ── Listas de keywords por campo (do mais específico ao mais genérico) ──
         KW_COD  = ["codigo", "cod.", "cod", "item", "num.", "nro.", "num", "nro", "nr."]
-        KW_DESC = ["descricao", "descricoes", "descr.", "descr", "desc.", "desc",
+        KW_DESC = ["composicao do item", "composicao", "descricao", "descricoes",
+                   "descr.", "descr", "desc.", "desc",
                    "servicos", "servico", "especificacao", "especif", "nome do servico", "nome"]
         KW_UN   = ["unidade", "unid.", "unid", "und.", "und", "un."]
         KW_QTD  = ["quantitativo", "quantidade", "quant.", "quant", "qtd.", "qtd", "qde"]
@@ -2775,14 +3525,65 @@ def pagina_orcamento():
             }
             st.dataframe(pd.DataFrame(diag_data), hide_index=True, width='stretch')
 
+        # ── Templates de mapeamento ───────────────────────────────────
+        with st.expander("📁 Templates de mapeamento", expanded=False):
+            st.caption("Salve o mapeamento atual para reutilizar em futuras importações da mesma planilha.")
+            tmpl_col1, tmpl_col2 = st.columns([1, 3])
+            df_tmpl = db.colmap_templates_listar(st.session_state.empresa_id)
+            tmpl_opts = {f"{r['nome']} ({r['created_at'][:10]})": r for _, r in df_tmpl.iterrows()} if not df_tmpl.empty else {}
+            tmpl_sel = tmpl_col1.selectbox("Carregar template", ["(nenhum)"] + list(tmpl_opts.keys()), key="tmpl_sel")
+            if tmpl_sel != "(nenhum)" and tmpl_sel in tmpl_opts:
+                if tmpl_col1.button("📂 Aplicar", key="btn_tmpl_load"):
+                    tmpl_data = tmpl_opts[tmpl_sel]["mapping"]
+                    for key, widget_key in [("codigo","mc_cod"), ("descricao","mc_desc"),
+                                            ("unidade","mc_un"), ("quantidade","mc_qtd"),
+                                            ("preco_unitario","mc_pu")]:
+                        col_name = tmpl_data.get(key, "")
+                        if col_name in avail:
+                            st.session_state[widget_key] = col_name
+                    _notify(f"✅ Template '{tmpl_sel}' aplicado!")
+                    st.rerun()
+            tmpl_nome = tmpl_col2.text_input("Nome do novo template (ex: 'Planilha SINAPI padrão')", key="tmpl_nome")
+            if tmpl_col2.button("💾 Salvar template", key="btn_tmpl_save"):
+                if not tmpl_nome.strip():
+                    st.warning("Digite um nome para o template.")
+                else:
+                    mapping = {
+                        "codigo": c_cod if c_cod != "(ignorar)" else "",
+                        "descricao": c_desc if c_desc != "(ignorar)" else "",
+                        "unidade": c_un if c_un != "(ignorar)" else "",
+                        "quantidade": c_qtd if c_qtd != "(ignorar)" else "",
+                        "preco_unitario": c_pu if c_pu != "(ignorar)" else "",
+                    }
+                    db.colmap_template_criar(st.session_state.empresa_id, tmpl_nome.strip(), mapping)
+                    _notify(f"✅ Template '{tmpl_nome.strip()}' salvo!")
+                    st.rerun()
+
         st.markdown("---")
 
         if st.button("⚙️ Processar Orçamento", type="primary", key="btn_proc"):
             if c_desc == "(ignorar)":
                 st.error("A coluna Descrição é obrigatória.")
+            elif df_h.empty:
+                st.error("A planilha não contém dados após o cabeçalho. Verifique a linha do cabeçalho.")
             else:
                 bdi_efetivo = 0.0 if bdi_incluso else bdi_orc
-                res = _processar_orcamento(df_h, c_cod, c_desc, c_un, c_qtd, c_pu, bdi_pct=bdi_efetivo)
+                try:
+                    res, avisos = _processar_orcamento(df_h, c_cod, c_desc, c_un, c_qtd, c_pu, bdi_pct=bdi_efetivo)
+                except Exception as _e_proc:
+                    st.error(f"Erro ao processar orçamento: {_e_proc}")
+                    import traceback; traceback.print_exc()
+                    res = []; avisos = []
+                # Exibe avisos do processamento
+                erros = [a for a in avisos if a["tipo"] == "ERRO"]
+                warns = [a for a in avisos if a["tipo"] == "ADVERTÊNCIA"]
+                if erros:
+                    for a in erros:
+                        st.error(f"{a['mensagem']}")
+                if warns:
+                    with st.expander("⚠️ Avisos do processamento", expanded=bool(warns)):
+                        for a in warns:
+                            st.warning(f"Linha {a['linha']}: {a['mensagem']}" if a['linha'] else a['mensagem'])
                 st.session_state.orcamento_mapped = res
                 # Vincula o orçamento à obra selecionada (usado na EAP)
                 if "orcamento_por_obra" not in st.session_state:
@@ -2839,16 +3640,90 @@ def pagina_orcamento():
                 if _cn.button("❌ Não, manter atual", key="btn_orc_manter"):
                     del st.session_state["orc_valor_proposta"]
                     st.rerun()
-            # ────────────────────────────────────────────────────────────────
             _exibir_orcamento_processado(
                 st.session_state.orcamento_mapped, obra_orc, bdi_orc, nome_orc
             )
+
+            # ── Salvar no Supabase ────────────────────────────────────────────
+            if _obra_valida(obra_orc):
+                ob_row = st.session_state.obras[st.session_state.obras["Nome"] == obra_orc]
+                sb_id_o = str(ob_row["SB_ID"].iloc[0]) if not ob_row.empty and pd.notna(ob_row["SB_ID"].iloc[0]) else ""
+                if sb_id_o:
+                    st.markdown("---")
+                    if st.button("💾 Salvar Orçamento", type="primary", key="btn_salvar_orc"):
+                        itens_raw = st.session_state.orcamento_mapped
+                        # Inclui insumos de composições
+                        composicoes = st.session_state.get("orcamento_composicoes", {})
+                        itens = list(itens_raw)
+                        ordem_idx = 1
+                        for r in itens_raw:
+                            r["composicao_id"] = None
+                        for cod, comp_data in composicoes.items():
+                            for ins in comp_data.get("insumos", []):
+                                itens.append({
+                                    "tipo": "ITEM", "ordem": f"CMP_{ordem_idx:04d}",
+                                    "descricao": ins.get("descricao", ""),
+                                    "unidade": ins.get("unidade", "un"),
+                                    "quantidade": float(ins.get("quantidade", 0)),
+                                    "preco_custo": 0.0, "preco_venda": 0.0,
+                                    "total_custo": 0.0, "total_venda": 0.0,
+                                    "etapa_pai": comp_data.get("descricao", ""),
+                                    "composicao_id": cod,
+                                })
+                                ordem_idx += 1
+                        total_c = sum(i.get("total_custo", 0) or 0 for i in itens if i["tipo"] == "ITEM")
+                        total_v = sum(i.get("total_venda", 0) or 0 for i in itens if i["tipo"] == "ITEM")
+                        bdi_ef  = 0.0 if st.session_state.get("orc_bdi_incluso", True) else st.session_state.get("orc_bdi", 25.0)
+                        orc_id  = sync.orcamento_save(
+                            obra_sb_id=sb_id_o,
+                            nome=nome_orc,
+                            versao=int(st.session_state.get("orc_versao", 1)),
+                            base_ref=base_ref,
+                            bdi_pct=bdi_ef,
+                            encargos=float(st.session_state.get("orc_enc", 80.0)),
+                            total_custo=total_c,
+                            total_venda=total_v,
+                            status=st.session_state.get("orc_status", "Rascunho"),
+                            itens=itens,
+                        )
+                        if orc_id:
+                            _notify(f"✅ Orçamento **{nome_orc}** salvo no banco!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Erro ao salvar orçamento no Supabase.")
 
         if st.button("🗑️ Limpar importação", key="btn_limpar"):
             st.session_state.orcamento_df_raw = None
             st.session_state.orcamento_mapped = None
             st.session_state.orcamento_nome   = None
+            st.session_state.orcamento_composicoes = {}
             st.rerun()
+
+    # ── Orçamentos já salvos ──────────────────────────────────────────────
+    if _obra_valida(obra_orc):
+        st.markdown("---")
+        st.subheader("📂 Orçamentos Salvos")
+        try:
+            orcs = sync.orcamento_load()
+            ob_row_o = st.session_state.obras[st.session_state.obras["Nome"] == obra_orc]
+            obra_uuid = str(ob_row_o["SB_ID"].iloc[0]) if not ob_row_o.empty and pd.notna(ob_row_o["SB_ID"].iloc[0]) else None
+            orcs_filtrados = [o for o in orcs if o.get("obra_id") == obra_uuid]
+            if orcs_filtrados:
+                for o in orcs_filtrados:
+                    with st.container(border=True):
+                        c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+                        c1.markdown(f"**{o['nome']}**")
+                        c2.caption(f"Versão {o['versao']}")
+                        c3.caption(f"Status: {o['status']}")
+                        c4.caption(f"Total: {_fmt(o['total_venda'])}")
+                        with st.expander(f"Ver itens ({len(o.get('itens', []))} itens)"):
+                            df_it = pd.DataFrame(o['itens'])[["ordem","descricao","unidade","quantidade","preco_custo"]]
+                            df_it.columns = ["Cód","Descrição","Un","Qtd","P.Custo"]
+                            st.dataframe(df_it, hide_index=True, width='stretch')
+            else:
+                st.info("Nenhum orçamento salvo para esta obra.")
+        except Exception as e:
+            st.warning(f"Não foi possível carregar orçamentos salvos: {e}")
 
     else:
         st.markdown("---")
@@ -2866,6 +3741,20 @@ def pagina_orcamento():
             "Linhas sem Quantidade/Preço são detectadas como Etapas da EAP. "
             "Códigos com ponto (1.1.1) definem a profundidade hierárquica automaticamente."
         )
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # TAB 2 — Orçado x Realizado
+    # ═══════════════════════════════════════════════════════════════════════
+    with tab_oxr:
+        oxr_sel = st.selectbox("Selecione a obra", _obras_nomes(), key="orc_oxr_obra")
+        if not _obra_valida(oxr_sel):
+            st.info("Selecione uma obra.")
+        else:
+            oxr_uuid = _obra_uuid(oxr_sel)
+            if not oxr_uuid:
+                st.warning("Obra não encontrada no Supabase.")
+            else:
+                _exibir_oxr(oxr_uuid, oxr_sel)
 
 
 # ── DIÁRIO DE OBRA (RDO) ──────────────────────────────────────────────────────
@@ -3159,24 +4048,44 @@ def pagina_eap():
 
     obras_lista = _obras_nomes()
     obra_sel = st.selectbox("Obra", obras_lista, key="eap_obra_sel")
+    obra_row = st.session_state.obras[st.session_state.obras["Nome"] == obra_sel]
+    obra_sb_id = str(obra_row["SB_ID"].iloc[0]) if not obra_row.empty and pd.notna(obra_row["SB_ID"].iloc[0]) else None
 
+    # ── Estado sem obra ──────────────────────────────────────────────
+    if obra_row.empty:
+        st.warning("Nenhuma obra selecionada.")
+        return
+
+    o = obra_row.iloc[0]
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("Status",          o["Status"])
+    c2.metric("Avanço Físico",   f"{o['% Físico']}%")
+    c3.metric("Valor Contrato",  _fmt(_to_num(o["Valor Contrato (R$)"])))
+    c4.metric("Responsável",     o["Responsável"])
+
+    # ── Carregar orçamentos salvos do Supabase ───────────────────────
     orc_por_obra = st.session_state.get("orcamento_por_obra", {})
     resultado    = orc_por_obra.get(obra_sel)
 
-    # ── Estado sem orçamento importado ───────────────────────────────
+    if not resultado and obra_sb_id:
+        orcs = sync.orcamento_load()
+        orcs_filtrados = [o2 for o2 in orcs if o2.get("obra_id") == obra_sb_id]
+        if orcs_filtrados:
+            nomes_orc = [f"{o2['nome']} (v{o2['versao']} — R$ {o2['total_venda']:,.2f})" for o2 in orcs_filtrados]
+            sel_idx = st.selectbox("Selecionar orçamento salvo", range(len(nomes_orc)), format_func=lambda i: nomes_orc[i] if i < len(nomes_orc) else "", key="eap_orc_sel")
+            if st.button("📂 Carregar este orçamento como EAP", key="eap_carregar_orc"):
+                o_sel = orcs_filtrados[sel_idx]
+                resultado = o_sel.get("itens", [])
+                if "orcamento_por_obra" not in st.session_state:
+                    st.session_state.orcamento_por_obra = {}
+                st.session_state.orcamento_por_obra[obra_sel] = resultado
+                st.rerun()
+
     if not resultado:
-        obra_row = st.session_state.obras[st.session_state.obras["Nome"] == obra_sel]
-        if len(obra_row):
-            o = obra_row.iloc[0]
-            c1,c2,c3,c4 = st.columns(4)
-            c1.metric("Status",          o["Status"])
-            c2.metric("Avanço Físico",   f"{o['% Físico']}%")
-            c3.metric("Valor Contrato",  _fmt(_to_num(o["Valor Contrato (R$)"])))
-            c4.metric("Responsável",     o["Responsável"])
         st.info(
-            f"Nenhum orçamento importado para **{obra_sel}**.\n\n"
-            "Acesse **Orçamento → Importar Planilha**, selecione esta obra, "
-            "processe o arquivo e clique em **⚙️ Processar Orçamento** para gerar a EAP aqui.",
+            f"Nenhum orçamento carregado para **{obra_sel}**.\n\n"
+            "Acesse **📊 Orçamento**, importe uma planilha e salve. "
+            "Ou carregue um orçamento já salvo acima.",
             icon="ℹ️",
         )
         return
@@ -3194,6 +4103,41 @@ def pagina_eap():
     c3.metric("Total Custo Direto",  _fmt(tc))
     c4.metric("Total Venda (c/ BDI)",_fmt(tv))
     st.markdown("---")
+
+    # ── Salvar EAP no Supabase ────────────────────────────────────────
+    if obra_sb_id:
+        if st.button("📁 Gerar EAP no Banco", key="btn_gerar_eap", type="primary"):
+            if sync.eap_save_from_orcamento(obra_sb_id, resultado):
+                _notify(f"✅ EAP gerada para **{obra_sel}**!")
+                st.rerun()
+            else:
+                st.error("Erro ao gerar EAP no banco.")
+
+    # ── Verificar se já existe EAP salva ──────────────────────────────
+    eap_data = sync.eap_load(obra_sb_id) if obra_sb_id else []
+    if eap_data:
+        st.success(f"📌 EAP já cadastrada no banco ({len(eap_data)} itens).")
+        if st.button("🔄 Recarregar estrutura salva", key="eap_reload"):
+            resultado = []
+            for e in eap_data:
+                qtd = float(e.get("qtd_prevista", 0) or 0)
+                resultado.append({
+                    "ordem":      e.get("codigo", ""),
+                    "descricao":  e.get("descricao", ""),
+                    "unidade":    e.get("unidade", ""),
+                    "quantidade": qtd,
+                    "preco_custo": 0,
+                    "preco_venda": 0,
+                    "total_custo": 0,
+                    "total_venda": float(e.get("valor_previsto", 0) or 0),
+                    "tipo":       "ITEM" if qtd > 0 else "ETAPA",
+                    "nivel":      1,
+                    "etapa_pai":  "",
+                })
+            if "orcamento_por_obra" not in st.session_state:
+                st.session_state.orcamento_por_obra = {}
+            st.session_state.orcamento_por_obra[obra_sel] = resultado
+            st.rerun()
 
     t_arv, t_prog, t_gantt = st.tabs(["🌳 Estrutura EAP","📊 Progresso por Etapa","📅 Cronograma"])
 
@@ -3218,6 +4162,17 @@ def pagina_eap():
                 })
         st.dataframe(pd.DataFrame(linhas), width='stretch', hide_index=True)
 
+    # ── Mapeamento descrição → código EAP ────────────────────────────
+    _desc_to_cod = {}
+    _cod_to_desc = {}
+    if eap_data:
+        for e in eap_data:
+            desc = e.get("descricao", "")
+            cod = e.get("codigo", "")
+            if desc:
+                _desc_to_cod[desc] = cod
+                _cod_to_desc[cod] = desc
+
     # ── Aba 2: Progresso por Etapa ───────────────────────────────────
     with t_prog:
         if len(etapas) and tv > 0:
@@ -3228,8 +4183,21 @@ def pagina_eap():
 
             if "eap_progresso" not in st.session_state:
                 st.session_state.eap_progresso = {}
+            if "eap_progresso_saved" not in st.session_state:
+                st.session_state.eap_progresso_saved = False
+
+            # Carrega progresso salvo do Supabase na primeira vez
+            if not st.session_state.eap_progresso_saved and eap_data:
+                for e in eap_data:
+                    desc = e.get("descricao", "")
+                    if desc:
+                        k = f"eap_{obra_sel}_{desc}"
+                        if k not in st.session_state.eap_progresso:
+                            st.session_state.eap_progresso[k] = float(e.get("progresso", 0) or 0) * 100
+                st.session_state.eap_progresso_saved = True
 
             st.caption("Defina o avanço físico de cada etapa:")
+            _prog_payload = {}
             for _, row in custo_et.iterrows():
                 nome_et = row["etapa_pai"]
                 k = f"eap_{obra_sel}_{nome_et}"
@@ -3239,8 +4207,20 @@ def pagina_eap():
                 cols[1].metric("Custo",   _fmt(row["total_custo"]))
                 cols[2].metric("% Total", f"{row['% Total']:.1f}%")
                 st.session_state.eap_progresso[k] = pct_novo
+                # Mapeia nome da etapa para código EAP
+                cod = _desc_to_cod.get(nome_et)
+                if cod:
+                    _prog_payload[cod] = pct_novo
 
             st.markdown("---")
+            if _prog_payload and obra_sb_id:
+                if st.button("💾 Salvar Progresso no Banco", key="btn_salvar_prog"):
+                    if sync.eap_save_all_progresso(obra_sb_id, _prog_payload):
+                        _notify("Progresso salvo!")
+                        st.rerun()
+                    else:
+                        st.error("Erro ao salvar progresso.")
+
             fig_p = px.bar(custo_et, x="etapa_pai", y="total_venda",
                            color_discrete_sequence=["#2B59C3"], text="% Total",
                            labels={"etapa_pai":"","total_venda":"R$"})
@@ -3253,8 +4233,28 @@ def pagina_eap():
     with t_gantt:
         if "eap_datas" not in st.session_state:
             st.session_state.eap_datas = {}
+        if "eap_datas_saved" not in st.session_state:
+            st.session_state.eap_datas_saved = False
 
         etapas_n1 = etapas[etapas["nivel"] == 1]["descricao"].tolist() if len(etapas) else []
+
+        # Carrega datas salvas do Supabase na primeira vez
+        if not st.session_state.eap_datas_saved and eap_data and obra_sel:
+            _loaded = {}
+            for e in eap_data:
+                desc = e.get("descricao", "")
+                di = e.get("data_inicio")
+                dt = e.get("data_termino")
+                if desc and (di or dt):
+                    kd = desc[:60]
+                    _loaded[kd] = {
+                        "ini": _iso_to_br(str(di)) if di else "",
+                        "fim": _iso_to_br(str(dt)) if dt else "",
+                        "desc": desc,
+                    }
+            if _loaded:
+                st.session_state.eap_datas[obra_sel] = _loaded
+            st.session_state.eap_datas_saved = True
 
         if not etapas_n1:
             st.info("Nenhuma etapa de nível 1 detectada. Verifique o mapeamento de colunas no Orçamento.")
@@ -3278,6 +4278,17 @@ def pagina_eap():
                     ok_dt = st.form_submit_button("💾 Salvar Datas", type="primary")
                 if ok_dt:
                     st.session_state.eap_datas[obra_sel] = novas_datas
+                    # Salva no Supabase
+                    if obra_sb_id:
+                        _datas_payload = {}
+                        for etapa in etapas_n1:
+                            k = etapa[:60]
+                            cod = _desc_to_cod.get(etapa)
+                            if cod:
+                                nd = novas_datas.get(k, {})
+                                _datas_payload[cod] = {"ini": nd.get("ini", ""), "fim": nd.get("fim", "")}
+                        if _datas_payload:
+                            sync.eap_save_all_datas(obra_sb_id, _datas_payload)
                     _notify("Datas salvas!"); st.rerun()
 
             # Monta Gantt somente para etapas com datas preenchidas
@@ -3320,7 +4331,7 @@ def pagina_eap():
 
     # ── Cronograma Físico-Financeiro ─────────────────────────────────────
     st.markdown("---")
-    st.subheader("📈 Cronograma Físico-Financeiro")
+    st.subheader("📈 Cronograma Físico-Financeiro (Orçado x Realizado)")
 
     datas_cff = st.session_state.eap_datas.get(obra_sel, {})
     gantt_cff = []
@@ -3343,7 +4354,6 @@ def pagina_eap():
         )
     else:
         import numpy as np
-        from scipy.special import erf as _erf
 
         ini_global = min(g["ini"] for g in gantt_cff)
         fim_global = max(g["fim"] for g in gantt_cff)
@@ -3354,37 +4364,53 @@ def pagina_eap():
         n = len(meses)
         mes_labels = [m.strftime("%b/%y") for m in meses]
 
-        # Curva S planejada via erf
-        _x = np.linspace(-2.0, 2.0, n)
-        _s_cum = (_erf(_x) + 1.0) / 2.0
-        _s_men = np.diff(np.concatenate([[0.0], _s_cum]))
-        _s_men = _s_men / _s_men.sum() * 100.0
+        # ── Orçado real dos EAP itens (curva planejada) ─────────────────
+        _eap_total_plan = float(eap_data[0].get("valor_previsto", tv)) if eap_data and len(eap_data) > 0 else tv
+        _eap_vals = np.array([float(e.get("valor_previsto", 0) or 0) for e in eap_data])
+        _eap_vals = _eap_vals[_eap_vals > 0]
+        if len(_eap_vals) == 0:
+            _eap_vals = np.array([tv / max(n, 1)] * n)
 
-        desemb_plan = _s_men * tv / 100.0
+        # Distribui o orçado proporcionalmente no tempo (Curva S realista)
+        _weights = np.ones(n)
+        _w_n = len(_weights)
+        _x_s = np.linspace(0, np.pi, _w_n)
+        _weights = np.sin(_x_s)  # senoide: aceleração-desaceleração
+        _weights = _weights / _weights.sum()
+        desemb_plan = _weights * _eap_total_plan
 
-        # Realizado financeiro: lançamentos filtrados pela obra
-        df_lanc_cff = st.session_state.get("lancamentos", pd.DataFrame())
-        desemb_real = np.zeros(n)
+        # ── Realizado financeiro: busca do Supabase por obra+EAP ────────
         try:
-            if len(df_lanc_cff) > 0 and "Data" in df_lanc_cff.columns and "Valor (R$)" in df_lanc_cff.columns:
-                _obra_col = next((c for c in df_lanc_cff.columns if "obra" in c.lower()), None)
-                _df_lo = df_lanc_cff[df_lanc_cff[_obra_col] == obra_sel].copy() if _obra_col else df_lanc_cff.copy()
-                _df_lo["_dt"]  = pd.to_datetime(_df_lo["Data"], dayfirst=True, errors="coerce")
-                _df_lo["_val"] = _df_lo["Valor (R$)"].apply(lambda v: _to_num(str(v)))
-                for _i, _mes in enumerate(meses):
-                    _fim_mes = _mes + pd.offsets.MonthEnd(0)
-                    _mask = (_df_lo["_dt"] >= _mes) & (_df_lo["_dt"] <= _fim_mes)
-                    desemb_real[_i] = _df_lo.loc[_mask, "_val"].sum()
+            _df_lc_r = db.lancamentos_listar("PAGAR")
+            if obra_sb_id and not _df_lc_r.empty:
+                _df_lo_r = _df_lc_r[_df_lc_r["obra_id"] == obra_sb_id].copy()
+                if "data_vencimento" in _df_lo_r.columns:
+                    _df_lo_r["_dt"] = pd.to_datetime(_df_lo_r["data_vencimento"], errors="coerce")
+                    _df_lo_r["_val"] = pd.to_numeric(_df_lo_r["valor"], errors="coerce").fillna(0)
+                    desemb_real = np.zeros(n)
+                    for _i, _mes in enumerate(meses):
+                        _fim_mes = _mes + pd.offsets.MonthEnd(0)
+                        _mask = (_df_lo_r["_dt"] >= _mes) & (_df_lo_r["_dt"] <= _fim_mes)
+                        desemb_real[_i] = _df_lo_r.loc[_mask, "_val"].sum()
+                else:
+                    desemb_real = np.zeros(n)
+            else:
+                desemb_real = np.zeros(n)
         except Exception:
-            pass
+            desemb_real = np.zeros(n)
 
-        # Físico realizado: média dos sliders de progresso
+        # ── Físico realizado dos sliders ────────────────────────────────
         _prog_cff = st.session_state.get("eap_progresso", {})
         _pcts_cff = [v for k_p, v in _prog_cff.items() if f"eap_{obra_sel}_" in k_p]
         pct_real = float(np.mean(_pcts_cff)) if _pcts_cff else 0.0
 
-        fis_plan_cum = _s_cum * 100.0
+        # Curva S física: distribuição senoidal
+        _weights_fis = np.sin(np.linspace(0, np.pi, n))
+        _weights_fis = _weights_fis / _weights_fis.sum()
+        fis_plan_cum = np.cumsum(_weights_fis * 100.0)
+        fis_plan_cum = fis_plan_cum / fis_plan_cum[-1] * 100.0 if fis_plan_cum[-1] > 0 else fis_plan_cum
         fis_real_cum = np.linspace(0.0, pct_real, n)
+
         fin_plan_cum = np.cumsum(desemb_plan)
         fin_real_cum = np.cumsum(desemb_real)
 
@@ -3439,23 +4465,6 @@ def pagina_eap():
                 margin=dict(t=40, b=20),
             )
             st.plotly_chart(_fig_fin, use_container_width=True)
-
-        _df_tab_cff = pd.DataFrame({
-            "Mês":               mes_labels,
-            "% Físico Mensal":   [f"{v:.1f}%" for v in _s_men],
-            "% Físico Acum.":    [f"{v:.1f}%" for v in fis_plan_cum],
-            "Desembolso Mensal": [_fmt(v) for v in desemb_plan],
-            "Desembolso Acum.":  [_fmt(v) for v in fin_plan_cum],
-        })
-        st.caption("Cronograma Físico-Financeiro — Planejado (Curva S)")
-        st.dataframe(_df_tab_cff, hide_index=True, use_container_width=True)
-        _col_cff, _ = st.columns([1, 4])
-        _col_cff.download_button(
-            "📥 Exportar Excel", _export_excel(_df_tab_cff),
-            f"cronograma_{obra_sel}.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_cronograma_cff",
-        )
 
 
 # ── Portal do Contratante ────────────────────────────────────────────────────
@@ -3939,6 +4948,43 @@ def _apply_css():
             font-size: 12px !important;
         }
         hr { border-color: rgba(255,255,255,0.08) !important; }
+
+        /* ── Dashboard cards ── */
+        .dash-card {
+            background: #FFFFFF;
+            border-radius: 12px;
+            padding: 16px 20px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(27,58,94,0.08);
+            border: 1px solid #E8ECF0;
+        }
+        .dash-card-header {
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            color: #1B3A5E;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #EDF0F5;
+            letter-spacing: -0.2px;
+        }
+        .dash-card-nav {
+            display: flex; gap: 8px; flex-wrap: wrap;
+            padding: 2px 0;
+        }
+        .dash-kpi-row { display: contents; }
+        .dash-kpi-row [data-testid="column"]:nth-child(1) [data-testid="stMetric"] { border-left-color: #2B59C3; }
+        .dash-kpi-row [data-testid="column"]:nth-child(2) [data-testid="stMetric"] { border-left-color: #27AE60; }
+        .dash-kpi-row [data-testid="column"]:nth-child(3) [data-testid="stMetric"] { border-left-color: #E67E22; }
+        .dash-kpi-row [data-testid="column"]:nth-child(4) [data-testid="stMetric"] { border-left-color: #2AACA0; }
+        .dash-kpi-row [data-testid="column"]:nth-child(5) [data-testid="stMetric"] { border-left-color: #E74C3C; }
+        .dash-empty {
+            color: #A0A8B0;
+            font-size: 13px;
+            font-weight: 500;
+            padding: 8px 0;
+            margin: 0;
+        }
     </style>""", unsafe_allow_html=True)
 
 
@@ -4001,6 +5047,7 @@ def app():
             "Diário de Obra":     ("📋", ["rdo"]),
             "Orçamento":          ("📊", ["orcamento"]),
             "Planejamento (EAP)": ("📅", ["obras"]),
+            "Administração":      ("⚙️", ["admin"]),
         }
     if "pagina_atual" not in st.session_state:
         st.session_state.pagina_atual = "Principal"
@@ -4051,6 +5098,7 @@ def app():
         elif p == "Diário de Obra":     pagina_rdo()
         elif p == "Orçamento":          pagina_orcamento()
         elif p == "Planejamento (EAP)": pagina_eap()
+        elif p == "Administração":      pagina_admin()
     except st.runtime.scriptrunner.RerunException:
         raise  # deixa st.rerun() funcionar normalmente
     except Exception as _page_err:
