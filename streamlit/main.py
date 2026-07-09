@@ -466,9 +466,9 @@ def _auth_login():
                     else:
                         st.session_state.usuario_obras_ids = []
                     st.rerun()
-                except Exception as e:
-                    st.error("Login inválido. Verifique e-mail e senha.")
-                    print(f"[auth] erro login: {e}")
+                except Exception as _auth_e:
+                    st.error(f"Login inválido: {_auth_e}")
+                    print(f"[auth] erro login: {_auth_e}")
 
         else:  # ── Criar conta ──────────────────────────────────────────────
             st.markdown("""
