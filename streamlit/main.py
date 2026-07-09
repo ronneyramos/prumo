@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 import streamlit as st
 import pandas as pd
+from datetime import datetime, timezone
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, datetime, time, timedelta
@@ -442,6 +443,20 @@ def _auth_login():
                         role = meta.get("role") or "admin"
                     st.session_state.usuario_role  = role
                     st.session_state.empresa_id    = meta.get("empresa_id") or "00000000-0000-0000-0000-000000000001"
+                    # ── Verifica status da empresa ──
+                    try:
+                        _st_res = sb().table("empresas").select("status").eq("id", st.session_state.empresa_id).execute()
+                        _st_emp = _st_res.data[0]["status"] if _st_res.data else "ativo"
+                    except Exception:
+                        _st_emp = "ativo"
+                    if _st_emp == "pendente":
+                        st.error("⏳ **Sua conta está aguardando aprovação.** Entraremos em contato em breve.")
+                        st.session_state.clear()
+                        st.stop()
+                    if _st_emp == "bloqueado":
+                        st.error("🚫 **Sua conta foi bloqueada.** Entre em contato com o suporte.")
+                        st.session_state.clear()
+                        st.stop()
                     if role in ("engenheiro", "adm_obra", "suprimentos", "qualidade"):
                         try:
                             obras_res = sb().table("usuario_obras").select("obra_id").eq("user_id", res.user.id).execute()
@@ -494,29 +509,29 @@ def _auth_login():
                         else:
                             user_id = res_cad.user.id
                             try:
-                                sb().auth.sign_in_with_password({"email": email_cad, "password": senha_cad})
-                            except Exception as _e_login:
-                                if "not confirmed" in str(_e_login).lower():
-                                    st.success("✅ Conta criada! Verifique seu e-mail para confirmar o cadastro e depois faça login.")
-                                    st.stop()
-                                raise _e_login
-                            try:
                                 rpc_res    = sb().rpc("registrar_empresa", {"p_nome_empresa": nome_empresa, "p_user_id": user_id}).execute()
                                 empresa_id = rpc_res.data
                             except Exception as _e_rpc:
                                 print(f"[cadastro] RPC: {_e_rpc}")
                                 emp_res    = sb().table("empresas").insert({"nome": nome_empresa, "cidade": cidade_cad, "estado": estado_cad}).execute()
                                 empresa_id = (emp_res.data[0] if emp_res.data else {}).get("id")
-                            st.session_state.usuario           = {"id": user_id, "email": email_cad, "nome": nome_usuario}
-                            st.session_state.usuario_role      = "admin"
-                            st.session_state.usuario_obras_ids = []
-                            st.session_state.empresa_id        = str(empresa_id) if empresa_id else "00000000-0000-0000-0000-000000000001"
-                            # Popula dados de demonstração para a nova empresa
-                            try:
-                                sb().rpc("seed_demo_data", {"p_empresa_id": str(st.session_state.empresa_id)}).execute()
-                            except Exception as _e_seed:
-                                print(f"[cadastro] seed_demo_data: {_e_seed}")
-                            _notify(f"✅ Bem-vindo(a) à {nome_empresa}! Dados de exemplo carregados.")
+                            # Marca como pendente (precisa de aprovação do admin)
+                            if empresa_id:
+                                try:
+                                    sb().table("empresas").update({"status": "pendente"}).eq("id", empresa_id).execute()
+                                except Exception:
+                                    pass
+                                # Popula dados de demonstração para quando for aprovado
+                                try:
+                                    sb().rpc("seed_demo_data", {"p_empresa_id": str(empresa_id)}).execute()
+                                except Exception as _e_seed:
+                                    print(f"[cadastro] seed_demo_data: {_e_seed}")
+                            st.success("""
+                            ✅ **Cadastro realizado com sucesso!**
+                            Sua conta está **aguardando aprovação** da administração.
+                            Entraremos em contato em breve para liberar o acesso.
+                            """)
+                            st.session_state.auth_mode = "login"
                             st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao criar conta: {e}")
@@ -588,7 +603,7 @@ def pagina_admin():
     _init()
     st.title("⚙️ Administração")
 
-    tabs = st.tabs(["👥 Usuários", "🏢 Empresa"])
+    tabs = st.tabs(["👥 Usuários", "🏢 Empresas"])
 
     # ===== TAB 1: USUÁRIOS =====================================================
     with tabs[0]:
@@ -719,9 +734,49 @@ def pagina_admin():
                                 st.success("Permissões atualizadas!")
                                 st.rerun()
 
-    # ===== TAB 2: EMPRESA ======================================================
+    # ===== TAB 2: EMPRESAS =====================================================
     with tabs[1]:
-        st.info("⚙️ Configurações da empresa serão implementadas em breve.")
+        try:
+            empresas_data = sb().table("empresas").select("id, nome, status, created_at, aprovado_em, bloqueado_em").order("created_at").execute()
+        except Exception as e:
+            st.error(f"Erro ao carregar empresas: {e}")
+            empresas_data = type("obj", (), {"data": []})()
+
+        df_emp = pd.DataFrame(empresas_data.data or [])
+        for _, row in df_emp.iterrows():
+            eid    = row["id"]
+            sts    = (row.get("status") or "pendente").lower()
+            cor    = {"ativo": "#059669", "pendente": "#D97706", "bloqueado": "#DC2626"}.get(sts, "#6B7280")
+            sts_label = {"ativo": "✅ Ativo", "pendente": "⏳ Pendente", "bloqueado": "🚫 Bloqueado"}.get(sts, sts)
+            with st.container(border=True):
+                cols = st.columns([3, 1, 1])
+                with cols[0]:
+                    st.markdown(f"**{row.get('nome', '—')}**")
+                    st.caption(f"Cadastro: {row.get('created_at', '—')}")
+                with cols[1]:
+                    st.markdown(f"<span style='color:{cor};font-weight:700;'>{sts_label}</span>",
+                                unsafe_allow_html=True)
+                with cols[2]:
+                    _agora = datetime.now(timezone.utc).isoformat()
+                    if sts == "pendente":
+                        if st.button("✅ Aprovar", key=f"aprovar_{eid}", type="primary", use_container_width=True):
+                            sb().table("empresas").update({"status": "ativo", "aprovado_em": _agora}).eq("id", eid).execute()
+                            st.success(f"Empresa {row.get('nome')} aprovada!")
+                            st.rerun()
+                        if st.button("❌ Bloquear", key=f"bloquear_{eid}", use_container_width=True):
+                            sb().table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
+                            st.error(f"Empresa {row.get('nome')} bloqueada!")
+                            st.rerun()
+                    elif sts == "bloqueado":
+                        if st.button("🔄 Reativar", key=f"reativar_{eid}", type="primary", use_container_width=True):
+                            sb().table("empresas").update({"status": "ativo", "aprovado_em": _agora}).eq("id", eid).execute()
+                            st.success(f"Empresa {row.get('nome')} reativada!")
+                            st.rerun()
+                    elif sts == "ativo":
+                        if st.button("🔒 Bloquear", key=f"bloq_{eid}", use_container_width=True):
+                            sb().table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
+                            st.error(f"Empresa {row.get('nome')} bloqueada!")
+                            st.rerun()
 
 
 # ── Dashboard ────────────────────────────────────────────────────────────────

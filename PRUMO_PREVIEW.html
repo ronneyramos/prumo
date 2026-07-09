@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PRUMO ERP // Preview da Identidade Visual (Clean Light)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Plus Jakarta Sans (SaaS Standard) & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+            background-color: #F8FAFC;
+            color: #1E293B;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #F1F5F9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #CBD5E1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94A3B8;
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            bg: '#F8FAFC',
+                            panel: '#FFFFFF',
+                            border: '#E2E8F0',
+                            text: '#0F172A',
+                            muted: '#64748B',
+                            primary: '#2563EB',   // Steel Blue (Preciso e moderno)
+                            success: '#166534',
+                            successBg: '#F0FDF4',
+                            successBorder: '#DCFCE7',
+                            error: '#991B1B',
+                            errorBg: '#FEF2F2',
+                            errorBorder: '#FEE2E2',
+                            warning: '#854D0E',
+                            warningBg: '#FEF3C7',
+                            warningBorder: '#FEF3C7'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="min-h-screen flex flex-col antialiased">
+
+    <!-- HEADER PREMIUM CLEAN -->
+    <header class="w-full bg-white border-b border-solid border-brand-border px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-6">
+            <div class="flex items-center gap-2">
+                <div class="w-7 h-7 bg-brand-primary rounded-lg flex items-center justify-center text-white font-extrabold text-sm">P</div>
+                <span class="text-lg font-bold tracking-tight text-brand-text">Prumo<span class="text-brand-primary font-extrabold">ERP</span></span>
+                <span class="text-[10px] text-brand-muted px-1.5 py-0.5 bg-slate-100 rounded-md font-medium">v8.0</span>
+            </div>
+            <div class="hidden md:flex items-center gap-4 text-xs text-brand-muted border-l border-brand-border pl-6">
+                <span>Unidade: <span class="text-brand-text font-medium">Canteiro Central</span></span>
+                <span class="flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+                    Supabase Conectado
+                </span>
+            </div>
+        </div>
+        
+        <div class="flex items-center gap-3">
+            <div class="text-right hidden sm:block text-xs">
+                <span class="block text-brand-text font-semibold">Eng. Ronney Araujo</span>
+                <span class="block text-brand-muted text-[10px]">Gestor de Obras / Admin</span>
+            </div>
+            <div class="w-9 h-9 rounded-full bg-slate-100 border border-brand-border flex items-center justify-center font-bold text-brand-primary">
+                RA
+            </div>
+        </div>
+    </header>
+
+    <div class="flex-1 flex overflow-hidden">
+        
+        <!-- SIDEBAR CLEAN -->
+        <aside class="w-64 bg-white border-r border-solid border-brand-border hidden lg:flex flex-col justify-between p-4 text-sm">
+            <div class="space-y-6">
+                <div>
+                    <span class="text-[10px] uppercase tracking-wider text-brand-muted block px-3 mb-2 font-bold">Módulos</span>
+                    <nav class="space-y-1">
+                        <a href="#" class="flex items-center gap-3 px-3 py-2.5 text-brand-primary bg-blue-50/70 rounded-lg font-semibold">
+                            <span>🏠</span>
+                            <span>Dashboard</span>
+                        </a>
+                        <a href="#" class="flex items-center gap-3 px-3 py-2.5 text-slate-700 hover:text-brand-primary hover:bg-slate-50 rounded-lg transition-all">
+                            <span>🏗️</span>
+                            <span>Obras & EAP</span>
+                        </a>
+                        <a href="#" class="flex items-center gap-3 px-3 py-2.5 text-slate-700 hover:text-brand-primary hover:bg-slate-50 rounded-lg transition-all">
+                            <span>📦</span>
+                            <span>Suprimentos</span>
+                        </a>
+                        <a href="#" class="flex items-center gap-3 px-3 py-2.5 text-slate-700 hover:text-brand-primary hover:bg-slate-50 rounded-lg transition-all">
+                            <span>💰</span>
+                            <span>Financeiro</span>
+                        </a>
+                        <a href="#" class="flex items-center gap-3 px-3 py-2.5 text-slate-700 hover:text-brand-primary hover:bg-slate-50 rounded-lg transition-all">
+                            <span>👥</span>
+                            <span>Pessoal / DP</span>
+                        </a>
+                        <a href="#" class="flex items-center gap-3 px-3 py-2.5 text-slate-700 hover:text-brand-primary hover:bg-slate-50 rounded-lg transition-all">
+                            <span>📋</span>
+                            <span>Diário de Obra</span>
+                        </a>
+                        <a href="#" class="flex items-center gap-3 px-3 py-2.5 text-slate-700 hover:text-brand-primary hover:bg-slate-50 rounded-lg transition-all">
+                            <span>✅</span>
+                            <span>Qualidade & NCs</span>
+                        </a>
+                    </nav>
+                </div>
+
+                <div>
+                    <span class="text-[10px] uppercase tracking-wider text-brand-muted block px-3 mb-2 font-bold">Segurança</span>
+                    <div class="px-3 space-y-2 text-xs text-brand-muted">
+                        <div class="flex items-center justify-between py-1.5 border-b border-slate-100">
+                            <span>Tenant Ativo</span>
+                            <span class="text-brand-text font-medium">MBR Engenharia</span>
+                        </div>
+                        <div class="flex items-center justify-between py-1.5 border-b border-slate-100">
+                            <span>Perfil</span>
+                            <span class="text-brand-primary font-medium">Administrador</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-50 p-3 rounded-lg border border-brand-border text-xs text-brand-muted space-y-1">
+                <p class="font-bold text-brand-text">Obra Ativa:</p>
+                <p>Residencial Atlântico</p>
+            </div>
+        </aside>
+
+        <!-- AREA DE TRABALHO -->
+        <main class="flex-1 bg-brand-bg overflow-y-auto p-6 space-y-6">
+            
+            <!-- TITULO E RESUMO DA OBRA ATIVA -->
+            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center border border-brand-border bg-white rounded-xl p-6 shadow-sm gap-4">
+                <div>
+                    <div class="flex items-center gap-2 mb-1.5">
+                        <span class="text-[10px] font-bold tracking-wider text-brand-muted uppercase">Controle de Engenharia</span>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">Em Execução</span>
+                    </div>
+                    <h1 class="text-2xl font-bold tracking-tight text-brand-text">Residencial Atlântico — Torre B</h1>
+                </div>
+                <div class="flex items-center gap-6 text-sm">
+                    <div class="border-l-2 border-brand-primary pl-4">
+                        <span class="block text-brand-muted text-[10px] uppercase font-bold tracking-wider">Contrato Global</span>
+                        <span class="text-lg text-brand-text font-bold">R$ 4.850.000,00</span>
+                    </div>
+                    <div class="border-l-2 border-slate-300 pl-4">
+                        <span class="block text-brand-muted text-[10px] uppercase font-bold tracking-wider">BDI Praticado</span>
+                        <span class="text-lg text-brand-text font-bold">22,50%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CARDS DE METRICAS (ESTILO SAAS PREMIUM CLEAN) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                
+                <div class="bg-white border border-brand-border rounded-xl p-5 shadow-sm hover:shadow-md transition-all">
+                    <span class="block text-xs font-bold text-brand-muted uppercase tracking-wider mb-2">Avanço Físico Real</span>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-3xl font-extrabold tracking-tight text-brand-text">64,2%</span>
+                        <span class="text-xs font-bold text-emerald-600">+1,8% vs planejado</span>
+                    </div>
+                    <!-- Barra de progresso amigável -->
+                    <div class="w-full bg-slate-100 h-2 mt-4 rounded-full overflow-hidden">
+                        <div class="bg-brand-primary h-full rounded-full" style="width: 64.2%"></div>
+                    </div>
+                </div>
+
+                <div class="bg-white border border-brand-border rounded-xl p-5 shadow-sm hover:shadow-md transition-all">
+                    <span class="block text-xs font-bold text-brand-muted uppercase tracking-wider mb-2">Desvio Orçamentário</span>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-3xl font-extrabold tracking-tight text-brand-text">+2,1%</span>
+                        <span class="text-xs font-bold text-rose-600">R$ 12.450,00</span>
+                    </div>
+                    <div class="w-full bg-slate-100 h-2 mt-4 rounded-full overflow-hidden">
+                        <div class="bg-rose-500 h-full rounded-full" style="width: 15%"></div>
+                    </div>
+                </div>
+
+                <div class="bg-white border border-brand-border rounded-xl p-5 shadow-sm hover:shadow-md transition-all">
+                    <span class="block text-xs font-bold text-brand-muted uppercase tracking-wider mb-2">Boletim de Medição</span>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-3xl font-extrabold tracking-tight text-brand-text">N° 12</span>
+                        <span class="text-xs text-brand-muted font-medium ml-1">Ref: Mai/2026</span>
+                    </div>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded mt-3 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">✓ Aprovado Financeiro</span>
+                </div>
+
+                <div class="bg-white border border-brand-border rounded-xl p-5 shadow-sm hover:shadow-md transition-all">
+                    <span class="block text-xs font-bold text-brand-muted uppercase tracking-wider mb-2">Qualidade & NCs</span>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-3xl font-extrabold tracking-tight text-brand-text">03</span>
+                        <span class="text-xs font-bold text-amber-600 ml-1">Não conformidades</span>
+                    </div>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded mt-3 text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-100">⚠️ Tratamento Pendente</span>
+                </div>
+
+            </div>
+
+            <!-- CORPO PRINCIPAL: EAP DA OBRA E HISTÓRICO DO RDO -->
+            <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                
+                <!-- TABELA CLEAN DA EAP -->
+                <div class="xl:col-span-8 bg-white border border-brand-border rounded-xl p-6 shadow-sm space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 bg-brand-primary rounded-full inline-block"></span>
+                            <h2 class="text-base font-bold text-brand-text">Estrutura Analítica do Projeto (EAP)</h2>
+                        </div>
+                        <span class="text-xs text-brand-muted">Orçamento Integrado</span>
+                    </div>
+
+                    <!-- HEADERS DA TABELA -->
+                    <div class="grid grid-cols-12 gap-4 text-xs font-bold text-brand-muted uppercase border-b border-slate-100 pb-3 px-3">
+                        <div class="col-span-2">Código</div>
+                        <div class="col-span-5">Serviço / Item de EAP</div>
+                        <div class="col-span-1 text-center">Unid</div>
+                        <div class="col-span-2 text-right">Orçado (R$)</div>
+                        <div class="col-span-2 text-right">Realizado (R$)</div>
+                    </div>
+
+                    <!-- LINHAS DA TABELA (ESTILO SAAS PREMIUM COMPACTO) -->
+                    <div class="space-y-1 overflow-y-auto max-h-[350px]">
+                        
+                        <!-- ITEM 1 -->
+                        <div class="grid grid-cols-12 gap-4 items-center py-3 px-3 border-b border-slate-100 hover:bg-slate-50 rounded-lg transition-colors text-sm">
+                            <div class="col-span-2 text-brand-primary font-bold">01.01</div>
+                            <div class="col-span-5 text-brand-text font-medium truncate">Serviços preliminares e limpeza</div>
+                            <div class="col-span-1 text-brand-muted text-center">m²</div>
+                            <div class="col-span-2 text-right text-brand-text font-medium">45.000,00</div>
+                            <div class="col-span-2 text-right text-emerald-600 font-semibold">45.000,00</div>
+                        </div>
+
+                        <!-- ITEM 2 -->
+                        <div class="grid grid-cols-12 gap-4 items-center py-3 px-3 border-b border-slate-100 hover:bg-slate-50 rounded-lg transition-colors text-sm">
+                            <div class="col-span-2 text-brand-primary font-bold">02.01</div>
+                            <div class="col-span-5 text-brand-text font-medium truncate">Fundação profunda (Estacas)</div>
+                            <div class="col-span-1 text-brand-muted text-center">un</div>
+                            <div class="col-span-2 text-right text-brand-text font-medium">320.000,00</div>
+                            <div class="col-span-2 text-right text-emerald-600 font-semibold">320.000,00</div>
+                        </div>
+
+                        <!-- ITEM 3 -->
+                        <div class="grid grid-cols-12 gap-4 items-center py-3 px-3 border-b border-slate-100 hover:bg-slate-50 rounded-lg transition-colors text-sm">
+                            <div class="col-span-2 text-brand-primary font-bold">03.01</div>
+                            <div class="col-span-5 text-brand-text font-medium truncate">Concreto usinado FCK 30 MPa</div>
+                            <div class="col-span-1 text-brand-muted text-center">m³</div>
+                            <div class="col-span-2 text-right text-brand-text font-medium">650.000,00</div>
+                            <div class="col-span-2 text-right text-amber-600 font-semibold">520.000,00</div>
+                        </div>
+
+                        <!-- ITEM 4 -->
+                        <div class="grid grid-cols-12 gap-4 items-center py-3 px-3 border-b border-slate-100 hover:bg-slate-50 rounded-lg transition-colors text-sm">
+                            <div class="col-span-2 text-brand-primary font-bold">03.02</div>
+                            <div class="col-span-5 text-brand-text font-medium truncate">Armadura aço CA-50 (Lajes)</div>
+                            <div class="col-span-1 text-brand-muted text-center">kg</div>
+                            <div class="col-span-2 text-right text-brand-text font-medium">480.000,00</div>
+                            <div class="col-span-2 text-right text-amber-600 font-semibold">410.000,00</div>
+                        </div>
+
+                        <!-- ITEM 5 -->
+                        <div class="grid grid-cols-12 gap-4 items-center py-3 px-3 border-b border-slate-100 hover:bg-slate-50 rounded-lg transition-colors text-sm">
+                            <div class="col-span-2 text-brand-primary font-bold">04.01</div>
+                            <div class="col-span-5 text-brand-text font-medium truncate">Alvenaria de vedação 14x19x39</div>
+                            <div class="col-span-1 text-brand-muted text-center">m²</div>
+                            <div class="col-span-2 text-right text-brand-text font-medium">180.000,00</div>
+                            <div class="col-span-2 text-right text-brand-text font-medium">22.000,00</div>
+                        </div>
+
+                    </div>
+
+                    <!-- TOTALIZADORES -->
+                    <div class="bg-slate-50 p-4 rounded-xl border border-brand-border flex items-center justify-between text-xs text-brand-muted">
+                        <span>Total medido acumulado até o momento:</span>
+                        <span class="text-brand-text font-bold text-sm">R$ 1.362.000,00 / R$ 1.675.000,00</span>
+                    </div>
+
+                </div>
+
+                <!-- LINHA DO TEMPO DO RDO (ESTILO SAAS CLEAN) -->
+                <div class="xl:col-span-4 bg-white border border-brand-border rounded-xl p-6 shadow-sm space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 bg-brand-primary rounded-full inline-block"></span>
+                            <h2 class="text-base font-bold text-brand-text">Linha do Tempo (RDO)</h2>
+                        </div>
+                        <span class="text-xs text-brand-muted">Hoje</span>
+                    </div>
+
+                    <!-- TIMELINE COM DESIGN REFINADO, SEM LINHAS DURAS -->
+                    <div class="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-100">
+                        
+                        <!-- EVENTO 1 -->
+                        <div class="relative">
+                            <!-- Indicador de Status moderno -->
+                            <span class="absolute -left-[22px] top-1.5 w-3 h-3 bg-brand-primary border-2 border-white rounded-full"></span>
+                            <div class="flex items-center justify-between text-[10px] text-brand-muted mb-1 font-semibold">
+                                <span>HOJE - 30/06/2026</span>
+                                <span class="text-emerald-700 font-bold">✓ ASSINADO</span>
+                            </div>
+                            <h4 class="text-xs font-bold text-brand-text">Concretagem da laje L5 (RDO-142)</h4>
+                            <p class="text-xs text-brand-muted mt-1 leading-relaxed">Moldagem de corpos de prova realizada para teste de FCK.</p>
+                        </div>
+
+                        <!-- EVENTO 2 -->
+                        <div class="relative">
+                            <!-- Indicador -->
+                            <span class="absolute -left-[22px] top-1.5 w-3 h-3 bg-brand-primary border-2 border-white rounded-full"></span>
+                            <div class="flex items-center justify-between text-[10px] text-brand-muted mb-1 font-semibold">
+                                <span>29/06/2026</span>
+                                <span class="text-emerald-700 font-bold">✓ ASSINADO</span>
+                            </div>
+                            <h4 class="text-xs font-bold text-brand-text">Alinhamento de Formas (RDO-141)</h4>
+                            <p class="text-xs text-brand-muted mt-1 leading-relaxed">Estanqueamento técnico concluído. Equipe ativa: 12 carpinteiros.</p>
+                        </div>
+
+                        <!-- EVENTO 3 -->
+                        <div class="relative">
+                            <!-- Indicador de alerta sutil -->
+                            <span class="absolute -left-[22px] top-1.5 w-3 h-3 bg-rose-500 border-2 border-white rounded-full"></span>
+                            <div class="flex items-center justify-between text-[10px] text-brand-muted mb-1 font-semibold">
+                                <span>28/06/2026</span>
+                                <span class="text-rose-700 font-bold">⚠️ NC REGISTRADA</span>
+                            </div>
+                            <h4 class="text-xs font-bold text-rose-700">Fissura de Retração v12 (INSP-089)</h4>
+                            <p class="text-xs text-brand-muted mt-1 leading-relaxed">Fissura superficial anotada. NC-2026-042 em tratamento.</p>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- TABELA DE SUPRIMENTOS / COMPRAS -->
+            <div class="bg-white border border-brand-border rounded-xl p-6 shadow-sm space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 bg-amber-500 rounded-full inline-block"></span>
+                        <h2 class="text-base font-bold text-brand-text">Cotações de Insumos Recentes</h2>
+                    </div>
+                    <span class="text-xs text-brand-muted">Módulo de Suprimentos</span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    
+                    <!-- CARD 1 -->
+                    <div class="border border-brand-border bg-slate-50/50 hover:bg-slate-50 p-4 rounded-xl transition-all">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-xs font-bold text-brand-text">Cimento CP-II Sacos 50kg</h3>
+                            <span class="text-[10px] text-brand-muted font-bold font-mono">COT-042</span>
+                        </div>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-100 mb-3">Aguardando Fornecedor</span>
+                        <div class="space-y-1 text-xs text-brand-muted">
+                            <p>Quantidade: <span class="text-brand-text font-semibold">1.200 sacos</span></p>
+                            <p>Prioridade: <span class="text-rose-600 font-bold">Alta</span></p>
+                        </div>
+                    </div>
+
+                    <!-- CARD 2 -->
+                    <div class="border border-brand-border bg-slate-50/50 hover:bg-slate-50 p-4 rounded-xl transition-all">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-xs font-bold text-brand-text">Aço CA-50 10.0mm</h3>
+                            <span class="text-[10px] text-brand-muted font-bold font-mono">COT-043</span>
+                        </div>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100 mb-3">Preços Recebidos</span>
+                        <div class="space-y-1 text-xs text-brand-muted">
+                            <p>Melhor proposta: <span class="text-brand-text font-semibold">R$ 12.450,00 (Gerdau)</span></p>
+                            <p>Prazo de entrega: <span class="text-brand-text font-semibold">5 dias úteis</span></p>
+                        </div>
+                    </div>
+
+                    <!-- CARD 3 -->
+                    <div class="border border-brand-border bg-slate-50/50 hover:bg-slate-50 p-4 rounded-xl transition-all">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-xs font-bold text-brand-text">Tubo PVC Amanco 100mm</h3>
+                            <span class="text-[10px] text-brand-muted font-bold font-mono">COT-044</span>
+                        </div>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-100 mb-3">Análise de Engenharia</span>
+                        <div class="space-y-1 text-[11px] text-brand-muted">
+                            <p>Quantidade: <span class="text-brand-text font-semibold">45 barras</span></p>
+                            <p>Uso: <span class="text-brand-text">Rede Pluvial Laje 4</span></p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+</body>
+</html>
