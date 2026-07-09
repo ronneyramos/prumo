@@ -306,116 +306,149 @@ def _export_excel(df: pd.DataFrame, nome_arquivo: str = "dados.xlsx") -> bytes:
 # ── Autenticação e controle de acesso ────────────────────────────────────────
 
 def _auth_login():
-    """Tela de login fiel ao mockup: fundo bege, split, guindaste SVG."""
+    """Tela de login fiel ao mockup Modelo 3: Navy + Teal + Orange + Blueprint."""
     if "auth_mode" not in st.session_state:
         st.session_state.auth_mode = "login"
 
     st.markdown("""<style>
-        :root { --primary-color: #1B3A5E !important; }
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
         html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
         section[data-testid="stSidebar"] { display: none !important; }
         #MainMenu, footer, header { visibility: hidden; }
-        .stApp { background: #EDE8DF !important; }
+        .stApp { background: #F4F6F8 !important; }
         .main .block-container {
-            max-width: 1200px !important; padding-top: 3vh !important;
+            max-width: 1060px !important; padding-top: 4vh !important;
             padding-left: 1.5rem !important; padding-right: 1.5rem !important;
-        }
-        /* Inputs com borda teal */
-        [data-testid="stTextInput"] input {
-            border-radius: 8px !important;
-            border: 1.5px solid #2AACA0 !important;
-            font-size: 14px !important; background: #FFFFFF !important;
-            padding: 12px 14px !important; color: #1B3A5E !important;
-        }
-        [data-testid="stTextInput"] input::placeholder { color: #A8B0BB !important; }
-        [data-testid="stTextInput"] input:focus {
-            border-color: #2AACA0 !important;
-            box-shadow: 0 0 0 3px rgba(42,172,160,0.15) !important;
-            outline: none !important;
-        }
-        [data-testid="InputInstructions"] { display: none !important; }
-        /* Botão azul escuro — stFormSubmitButton universal */
-        [data-testid="stFormSubmitButton"],
-        [data-testid="stFormSubmitButton"] button {
-            background: #1B3A5E !important;
-            border: none !important;
-            border-radius: 8px !important; font-weight: 800 !important;
-            font-size: 15px !important; letter-spacing: 2px; text-transform: uppercase;
-            box-shadow: 0 4px 14px rgba(27,58,94,0.25) !important;
-            height: 48px !important;
-            color: #FFFFFF !important;
-        }
-        [data-testid="stFormSubmitButton"]:hover,
-        [data-testid="stFormSubmitButton"]:hover button {
-            background: #122A45 !important;
         }
         /* Card branco do formulário */
         [data-testid="stForm"] {
             background: #FFFFFF !important; border: none !important;
-            border-radius: 12px !important; padding: 28px 28px 20px !important;
-            box-shadow: 0 2px 24px rgba(27,58,94,0.09) !important;
-            margin-bottom: 14px !important;
+            border-radius: 12px !important; padding: 24px 24px 16px !important;
+            box-shadow: 0 2px 20px rgba(29,53,87,0.07) !important;
         }
-        [data-testid="stTextInput"] { margin-bottom: 2px !important; }
-        [data-testid="stSelectbox"] label { font-size: 12px !important; color: #6B7280 !important; }
-        /* Colunas com mesma altura */
+        /* Labels dos campos */
+        .login-label {
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 1px; color: #6B7A8F; margin: 0 0 6px;
+        }
+        /* Inputs */
+        [data-testid="stTextInput"] { margin-bottom: 4px !important; }
+        [data-testid="stTextInput"] input {
+            border-radius: 8px !important;
+            border: 1.5px solid #D1D9E6 !important;
+            font-size: 14px !important; background: #F4F6F8 !important;
+            padding: 12px 14px !important; color: #1D3557 !important;
+            height: 48px !important;
+        }
+        [data-testid="stTextInput"] input::placeholder { color: #9AA8B9 !important; }
+        [data-testid="stTextInput"] input:focus {
+            border-color: #457B9D !important;
+            box-shadow: 0 0 0 3px rgba(69,123,157,0.15) !important;
+            outline: none !important;
+        }
+        [data-testid="InputInstructions"] { display: none !important; }
+        /* Botão LARANJA */
+        [data-testid="stFormSubmitButton"],
+        [data-testid="stFormSubmitButton"] button {
+            background: #E63946 !important;
+            border: none !important;
+            border-radius: 8px !important; font-weight: 700 !important;
+            font-size: 14px !important; letter-spacing: 1.5px; text-transform: uppercase;
+            box-shadow: 0 4px 14px rgba(230,57,70,0.3) !important;
+            height: 50px !important;
+            color: #FFFFFF !important;
+            transition: all 0.2s !important;
+        }
+        [data-testid="stFormSubmitButton"]:hover,
+        [data-testid="stFormSubmitButton"]:hover button {
+            background: #C1121F !important;
+            box-shadow: 0 6px 20px rgba(230,57,70,0.4) !important;
+        }
+        /* Ilustração blueprint ocupa altura total */
+        .blueprint-wrap {
+            border-radius: 16px; overflow: hidden; width: 100%;
+            background: linear-gradient(145deg, #EDF2F7, #E2E8F0);
+            flex: 1; display: flex; align-items: center; justify-content: center;
+            padding: 20px; position: relative;
+        }
+        .blueprint-wrap::before {
+            content: ''; position: absolute; inset: 0;
+            background-image:
+                linear-gradient(rgba(29,53,87,0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(29,53,87,0.04) 1px, transparent 1px);
+            background-size: 32px 32px;
+        }
+        .blueprint-wrap svg {
+            width: 100%; max-width: 380px; position: relative; z-index: 1;
+        }
+        /* Colunas mesma altura */
         section[data-testid="stHorizontalBlock"] > div {
             display: flex; flex-direction: column;
         }
-        /* Imagem preenche toda a coluna direita */
-        .login-illus-wrap {
-            border-radius: 16px; overflow: hidden; width: 100%;
-            box-shadow: 0 2px 24px rgba(27,58,94,0.09);
-            flex: 1; display: flex;
+        /* Botão Criar conta */
+        .btn-link-cadastro {
+            background: none !important; border: 1.5px solid #D1D9E6 !important;
+            border-radius: 8px !important; padding: 10px 20px !important;
+            color: #1D3557 !important; font-weight: 600 !important;
+            font-size: 13px !important; cursor: pointer !important;
+            transition: border-color 0.2s !important; width: 100%;
         }
-        .login-illus-wrap img {
-            width: 100%; flex: 1; display: block;
-            object-fit: cover; object-position: center 30%;
+        .btn-link-cadastro:hover {
+            border-color: #457B9D !important;
         }
     </style>""", unsafe_allow_html=True)
 
     col_form, col_illus = st.columns([1, 1], gap="large")
 
-    # ─── COLUNA ESQUERDA — Logo + Form ───────────────────────────────────────
+    # ═══ COLUNA ESQUERDA — LOGO + FORM ═══════════════════════════════════════
     with col_form:
-        # Logo oficial (Modelo 3) — arquivo real, não mais desenhado à mão em SVG
-        _logo_path = os.path.join(os.path.dirname(__file__), "static", "logo.png")
-        st.image(_logo_path, width=340)
-        st.markdown('<div style="margin-bottom:1.2rem;"></div>', unsafe_allow_html=True)
+        # Logo SVG (ícone "P" estrutural)
+        st.markdown("""
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px;">
+            <svg width="42" height="42" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+                <rect x="6" y="6" width="6" height="28" rx="1.5" fill="#1D3557" />
+                <rect x="14" y="6" width="20" height="6" rx="1.5" fill="#1D3557" />
+                <rect x="14" y="14" width="12" height="6" rx="1.5" fill="#457B9D" />
+                <rect x="14" y="22" width="6" height="12" rx="1.5" fill="#457B9D" />
+                <line x1="14" y1="28" x2="34" y2="28" stroke="#E63946" stroke-width="2" stroke-linecap="round" opacity="0.5" />
+                <circle cx="34" cy="28" r="2.5" fill="#E63946" opacity="0.4" />
+            </svg>
+            <div style="display:flex;flex-direction:column;line-height:1;">
+                <span style="font-size:24px;font-weight:800;letter-spacing:-0.5px;color:#1D3557;">PRUMO</span>
+                <span style="font-size:10px;font-weight:400;color:#457B9D;letter-spacing:2px;text-transform:uppercase;margin-top:1px;">ERP</span>
+                <span style="font-size:10px;font-weight:600;color:#6B7A8F;letter-spacing:1.2px;text-transform:uppercase;margin-top:1px;">Software de Construção Civil</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         if st.session_state.auth_mode == "login":
-            # Saudação
             st.markdown("""
-            <div style="margin-bottom:1.6rem;">
-                <div style="font-size:1.55rem;font-weight:900;color:#1B3A5E;text-transform:uppercase;
-                            letter-spacing:0.5px;line-height:1.15;">OLÁ, GESTOR!</div>
-                <div style="font-size:0.9rem;font-weight:700;color:#1B3A5E;text-transform:uppercase;
-                            opacity:0.55;margin-top:5px;letter-spacing:0.3px;">
-                    ACESSE SUA CONTA DE CONSTRUÇÃO
+            <div style="margin-bottom:26px;">
+                <div style="font-size:22px;font-weight:800;color:#1D3557;line-height:1.3;">
+                    OLÁ, GESTOR!<br />
+                    <span style="font-size:20px;">ACESSE SUA CONTA DE CONSTRUÇÃO</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
             with st.form("form_login"):
-                st.markdown('<p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6B7280;margin:0 0 6px;">E-MAIL DA OBRA</p>', unsafe_allow_html=True)
+                st.markdown('<p class="login-label">E-MAIL DA OBRA</p>', unsafe_allow_html=True)
                 email = st.text_input("email", placeholder="engenheiro@obra.com", label_visibility="collapsed")
-                st.markdown('<p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6B7280;margin:14px 0 6px;">SENHA</p>', unsafe_allow_html=True)
-                senha  = st.text_input("senha", type="password", label_visibility="collapsed")
+                st.markdown('<p class="login-label" style="margin-top:14px;">SENHA</p>', unsafe_allow_html=True)
+                senha  = st.text_input("senha", type="password", placeholder="••••••••", label_visibility="collapsed")
                 st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
                 entrar = st.form_submit_button("ENTRAR", use_container_width=True)
 
             st.markdown("""
-            <div style="text-align:center;margin-top:14px;">
-                <p style="font-size:13px;color:#6B7280;margin:0 0 6px;">Esqueceu a senha?</p>
-                <p style="font-size:13px;color:#6B7280;margin:0;">
-                    Ainda não tem conta?
-                    <strong style="color:#1B3A5E;cursor:pointer;">Solicite uma demonstração</strong>
-                    ou <strong style="color:#1B3A5E;cursor:pointer;">cadastre-se.</strong>
-                </p>
+            <div style="text-align:center;margin-top:16px;font-size:13px;color:#6B7A8F;line-height:1.6;">
+                <a href="#" style="color:#6B7A8F;font-weight:500;text-decoration:none;">Esqueceu a senha?</a><br />
+                Ainda não tem conta?
+                <strong style="color:#1D3557;cursor:pointer;">Solicite uma demonstração</strong>
+                ou <strong style="color:#1D3557;cursor:pointer;">cadastre-se.</strong>
             </div>
             """, unsafe_allow_html=True)
 
+            st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
             if st.button("Criar conta gratuita →", key="btn_ir_cadastro", use_container_width=False):
                 st.session_state.auth_mode = "cadastro"
                 st.rerun()
@@ -443,7 +476,6 @@ def _auth_login():
                         role = meta.get("role") or "admin"
                     st.session_state.usuario_role  = role
                     st.session_state.empresa_id    = meta.get("empresa_id") or "00000000-0000-0000-0000-000000000001"
-                    # ── Verifica status da empresa ──
                     try:
                         _st_res = sb().table("empresas").select("status").eq("id", st.session_state.empresa_id).execute()
                         _st_emp = _st_res.data[0]["status"] if _st_res.data else "ativo"
@@ -473,10 +505,10 @@ def _auth_login():
         else:  # ── Criar conta ──────────────────────────────────────────────
             st.markdown("""
             <div style="margin-bottom:1.4rem;">
-                <div style="font-size:1.4rem;font-weight:900;color:#1B3A5E;text-transform:uppercase;">
+                <div style="font-size:1.4rem;font-weight:800;color:#1D3557;text-transform:uppercase;">
                     CRIAR CONTA
                 </div>
-                <div style="font-size:0.85rem;color:#6B7280;margin-top:4px;">
+                <div style="font-size:0.85rem;color:#6B7A8F;margin-top:4px;">
                     30 dias gratuitos · sem cartão de crédito
                 </div>
             </div>
@@ -515,13 +547,11 @@ def _auth_login():
                                 print(f"[cadastro] RPC: {_e_rpc}")
                                 emp_res    = sb().table("empresas").insert({"nome": nome_empresa, "cidade": cidade_cad, "estado": estado_cad}).execute()
                                 empresa_id = (emp_res.data[0] if emp_res.data else {}).get("id")
-                            # Marca como pendente (precisa de aprovação do admin)
                             if empresa_id:
                                 try:
                                     sb().table("empresas").update({"status": "pendente"}).eq("id", empresa_id).execute()
                                 except Exception:
                                     pass
-                                # Popula dados de demonstração para quando for aprovado
                                 try:
                                     sb().rpc("seed_demo_data", {"p_empresa_id": str(empresa_id)}).execute()
                                 except Exception as _e_seed:
@@ -537,18 +567,87 @@ def _auth_login():
                         st.error(f"Erro ao criar conta: {e}")
                         print(f"[cadastro] erro: {e}")
 
+    # ═══ COLUNA DIREITA — ILUSTRAÇÃO BLUEPRINT ═══════════════════════════════
     with col_illus:
-        import os as _os
-        import base64 as _base64
-        _img_path = _os.path.join(_os.path.dirname(__file__), "static", "building.png")
-        with open(_img_path, "rb") as _f:
-            _img_b64 = _base64.b64encode(_f.read()).decode()
-        st.markdown(
-            f'<div class="login-illus-wrap">'
-            f'<img src="data:image/png;base64,{_img_b64}" alt="Prédio" />'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown("""
+        <div class="blueprint-wrap">
+        <svg viewBox="0 0 380 440" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <g opacity="0.06">
+                <line x1="0" y1="40" x2="380" y2="40" stroke="#1D3557" stroke-width="1"/>
+                <line x1="0" y1="80" x2="380" y2="80" stroke="#1D3557" stroke-width="1"/>
+                <line x1="0" y1="120" x2="380" y2="120" stroke="#1D3557" stroke-width="1"/>
+                <line x1="0" y1="160" x2="380" y2="160" stroke="#1D3557" stroke-width="1"/>
+                <line x1="0" y1="200" x2="380" y2="200" stroke="#1D3557" stroke-width="1"/>
+                <line x1="0" y1="240" x2="380" y2="240" stroke="#1D3557" stroke-width="1"/>
+                <line x1="0" y1="280" x2="380" y2="280" stroke="#1D3557" stroke-width="1"/>
+                <line x1="0" y1="320" x2="380" y2="320" stroke="#1D3557" stroke-width="1"/>
+                <line x1="0" y1="360" x2="380" y2="360" stroke="#1D3557" stroke-width="1"/>
+                <line x1="0" y1="400" x2="380" y2="400" stroke="#1D3557" stroke-width="1"/>
+                <line x1="38" y1="0" x2="38" y2="440" stroke="#1D3557" stroke-width="1"/>
+                <line x1="76" y1="0" x2="76" y2="440" stroke="#1D3557" stroke-width="1"/>
+                <line x1="114" y1="0" x2="114" y2="440" stroke="#1D3557" stroke-width="1"/>
+                <line x1="152" y1="0" x2="152" y2="440" stroke="#1D3557" stroke-width="1"/>
+                <line x1="190" y1="0" x2="190" y2="440" stroke="#1D3557" stroke-width="1"/>
+                <line x1="228" y1="0" x2="228" y2="440" stroke="#1D3557" stroke-width="1"/>
+                <line x1="266" y1="0" x2="266" y2="440" stroke="#1D3557" stroke-width="1"/>
+                <line x1="304" y1="0" x2="304" y2="440" stroke="#1D3557" stroke-width="1"/>
+                <line x1="342" y1="0" x2="342" y2="440" stroke="#1D3557" stroke-width="1"/>
+            </g>
+            <g stroke="#1D3557" stroke-width="2" fill="none">
+                <line x1="70" y1="370" x2="70" y2="80" />
+                <line x1="140" y1="370" x2="140" y2="80" />
+                <line x1="210" y1="370" x2="210" y2="80" />
+                <line x1="280" y1="370" x2="280" y2="80" />
+                <line x1="70" y1="310" x2="280" y2="310" />
+                <line x1="70" y1="250" x2="280" y2="250" />
+                <line x1="70" y1="190" x2="280" y2="190" />
+                <line x1="70" y1="130" x2="280" y2="130" />
+                <line x1="70" y1="80" x2="280" y2="80" />
+                <rect x="58" y="370" width="234" height="10" rx="2" stroke-width="2.5" />
+                <line x1="70" y1="310" x2="140" y2="250" stroke-width="1.2" stroke="#457B9D" />
+                <line x1="140" y1="310" x2="70" y2="250" stroke-width="1.2" stroke="#457B9D" />
+                <line x1="140" y1="250" x2="210" y2="190" stroke-width="1.2" stroke="#457B9D" />
+                <line x1="210" y1="250" x2="140" y2="190" stroke-width="1.2" stroke="#457B9D" />
+            </g>
+            <g stroke="#457B9D" stroke-width="1.8" fill="none">
+                <line x1="330" y1="370" x2="330" y2="40" stroke-width="2.5" stroke="#1D3557" />
+                <line x1="290" y1="40" x2="370" y2="40" stroke-width="2.5" stroke="#1D3557" />
+                <rect x="290" y="22" width="16" height="18" rx="2" stroke-width="1.5" />
+                <line x1="360" y1="40" x2="360" y2="100" stroke-width="1" stroke-dasharray="4 3" />
+                <path d="M360,100 L360,110 Q360,120 355,120 Q350,120 350,115" stroke-width="1.5" />
+                <line x1="325" y1="50" x2="335" y2="70" stroke-width="0.8" />
+                <line x1="335" y1="50" x2="325" y2="70" stroke-width="0.8" />
+                <line x1="325" y1="90" x2="335" y2="110" stroke-width="0.8" />
+                <line x1="335" y1="90" x2="325" y2="110" stroke-width="0.8" />
+            </g>
+            <g stroke="#457B9D" stroke-width="1.2" fill="none" opacity="0.7">
+                <line x1="50" y1="370" x2="50" y2="160" />
+                <line x1="40" y1="370" x2="40" y2="160" />
+                <line x1="40" y1="350" x2="50" y2="350" />
+                <line x1="40" y1="330" x2="50" y2="330" />
+                <line x1="40" y1="310" x2="50" y2="310" />
+                <line x1="40" y1="290" x2="50" y2="290" />
+                <line x1="40" y1="270" x2="50" y2="270" />
+                <line x1="40" y1="250" x2="50" y2="250" />
+                <line x1="40" y1="230" x2="50" y2="230" />
+                <line x1="40" y1="210" x2="50" y2="210" />
+                <line x1="40" y1="190" x2="50" y2="190" />
+                <line x1="40" y1="170" x2="50" y2="170" />
+                <line x1="40" y1="350" x2="50" y2="330" stroke-width="0.8" />
+                <line x1="40" y1="310" x2="50" y2="290" stroke-width="0.8" />
+                <line x1="40" y1="270" x2="50" y2="250" stroke-width="0.8" />
+                <line x1="40" y1="230" x2="50" y2="210" stroke-width="0.8" />
+            </g>
+            <g stroke="#E63946" stroke-width="1" opacity="0.5">
+                <line x1="290" y1="80" x2="290" y2="370" />
+                <polygon points="290,80 285,90 295,90" fill="#E63946" />
+                <polygon points="290,370 285,360 295,360" fill="#E63946" />
+            </g>
+            <text x="296" y="230" font-family="'Inter',sans-serif" font-size="9" font-weight="600" fill="#E63946" opacity="0.6">+28,50m</text>
+            <text x="80" y="408" font-family="'Inter',sans-serif" font-size="9" font-weight="600" fill="#1D3557" opacity="0.45">CORTE AA — ESTRUTURA</text>
+        </svg>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 def _role() -> str:

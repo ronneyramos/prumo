@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PRUMO ERP — Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    /* ══════════════════════════════════════════════════════════
+       TOKENS DE DESIGN
+       ══════════════════════════════════════════════════════════ */
+    :root {
+      --navy:        #1D3557;
+      --teal:        #457B9D;
+      --teal-light:  #2A9D8F;
+      --bg:          #F4F6F8;
+      --bg-card:     #FFFFFF;
+      --border:      #D1D9E6;
+      --muted:       #6B7A8F;
+      --orange:      #E63946;
+      --orange-hover:#C1121F;
+      --text:        #1D3557;
+      --font:        'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --radius:      12px;
+      --radius-sm:   8px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       CONTAINER PRINCIPAL — Grid 2 colunas
+       ══════════════════════════════════════════════════════════ */
+    .login-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      max-width: 1060px;
+      width: 100%;
+      min-height: 620px;
+      background: var(--bg-card);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 40px rgba(29, 53, 87, 0.08), 0 2px 8px rgba(0,0,0,0.04);
+      overflow: hidden;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       COLUNA ESQUERDA — FORMULÁRIO
+       ══════════════════════════════════════════════════════════ */
+    .login-form-col {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 56px 52px;
+    }
+
+    /* ── Logo ── */
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      flex-shrink: 0;
+    }
+
+    .logo-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .logo-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1;
+    }
+
+    .logo-text .prumo {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: var(--navy);
+      line-height: 1;
+    }
+
+    .logo-text .erp {
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--teal);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    .logo-tagline {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      margin-top: 1px;
+    }
+
+    /* ── Título ── */
+    .welcome-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--navy);
+      margin-bottom: 28px;
+      line-height: 1.3;
+    }
+
+    /* ── Formulário ── */
+    .login-form {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field-group label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .input-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-wrap input {
+      width: 100%;
+      height: 48px;
+      padding: 0 16px;
+      font-size: 14px;
+      font-family: var(--font);
+      color: var(--navy);
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .input-wrap input::placeholder {
+      color: #9AA8B9;
+      font-weight: 400;
+    }
+
+    .input-wrap input:focus {
+      border-color: var(--teal);
+      box-shadow: 0 0 0 3px rgba(69, 123, 157, 0.15);
+    }
+
+    .input-wrap .eye-btn {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s;
+    }
+
+    .input-wrap .eye-btn:hover {
+      color: var(--navy);
+    }
+
+    /* ── Botão ENTRAR ── */
+    .btn-entrar {
+      width: 100%;
+      height: 50px;
+      margin-top: 6px;
+      background: var(--orange);
+      color: #fff;
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+    }
+
+    .btn-entrar:hover {
+      background: var(--orange-hover);
+      box-shadow: 0 4px 16px rgba(230, 57, 70, 0.35);
+    }
+
+    .btn-entrar:active {
+      transform: scale(0.98);
+    }
+
+    /* ── Links ── */
+    .login-links {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      margin-top: 20px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .login-links a {
+      color: var(--navy);
+      font-weight: 600;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .login-links a:hover {
+      color: var(--teal);
+      text-decoration: underline;
+    }
+
+    .login-links .small-link {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .login-links .small-link a {
+      font-size: 12px;
+      color: var(--navy);
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       COLUNA DIREITA — ILUSTRAÇÃO BLUEPRINT
+       ══════════════════════════════════════════════════════════ */
+    .illustration-col {
+      background: linear-gradient(145deg, #EDF2F7 0%, #E2E8F0 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      padding: 40px;
+    }
+
+    .illustration-col::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(29,53,87,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(29,53,87,0.04) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+
+    .blueprint {
+      position: relative;
+      width: 100%;
+      max-width: 420px;
+      z-index: 1;
+    }
+
+    .blueprint svg {
+      width: 100%;
+      height: auto;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       RESPONSIVO — MOBILE
+       ══════════════════════════════════════════════════════════ */
+    @media (max-width: 820px) {
+      .login-container {
+        grid-template-columns: 1fr;
+        max-width: 460px;
+        min-height: auto;
+      }
+
+      .login-form-col {
+        padding: 40px 28px;
+      }
+
+      .illustration-col {
+        display: none;
+      }
+
+      .welcome-title {
+        font-size: 19px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      body { padding: 12px; }
+      .login-form-col { padding: 32px 20px; }
+      .logo-icon { width: 34px; height: 34px; }
+      .logo-text .prumo { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+
+    <!-- ═══ COLUNA ESQUERDA: FORMULÁRIO ═══ -->
+    <div class="login-form-col">
+
+      <!-- Logo -->
+      <div class="logo">
+        <div class="logo-icon" aria-label="Prumo ERP logo">
+          <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="6" y="6" width="6" height="28" rx="1.5" fill="#1D3557" />
+            <rect x="14" y="6" width="20" height="6" rx="1.5" fill="#1D3557" />
+            <rect x="14" y="14" width="12" height="6" rx="1.5" fill="#457B9D" />
+            <rect x="14" y="22" width="6" height="12" rx="1.5" fill="#457B9D" />
+            <rect x="22" y="22" width="4" height="4" rx="1" fill="#457B9D" opacity="0.6" />
+            <line x1="14" y1="28" x2="34" y2="28" stroke="#E63946" stroke-width="2" stroke-linecap="round" opacity="0.5" />
+            <circle cx="34" cy="28" r="2.5" fill="#E63946" opacity="0.4" />
+          </svg>
+        </div>
+        <div class="logo-text">
+          <span class="prumo">PRUMO</span>
+          <span class="erp">ERP</span>
+          <span class="logo-tagline">Software de Construção Civil</span>
+        </div>
+      </div>
+
+      <!-- Título -->
+      <h2 class="welcome-title">OLÁ, GESTOR!<br />ACESSE SUA CONTA DE CONSTRUÇÃO</h2>
+
+      <!-- Formulário -->
+      <form class="login-form" onsubmit="event.preventDefault();">
+        <div class="field-group">
+          <label for="email">E-MAIL DA OBRA</label>
+          <div class="input-wrap">
+            <input type="email" id="email" placeholder="engenheiro@obra.com" autocomplete="email" />
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="senha">SENHA</label>
+          <div class="input-wrap">
+            <input type="password" id="senha" placeholder="••••••••" autocomplete="current-password" />
+            <button type="button" class="eye-btn" id="toggleSenha" aria-label="Alternar visibilidade da senha">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-entrar">ENTRAR</button>
+      </form>
+
+      <!-- Links -->
+      <div class="login-links">
+        <a href="#" class="small-link">Esqueceu a senha?</a>
+        <span>
+          Ainda não tem conta?
+          <a href="#"><strong>Solicite uma demonstração</strong></a>
+          ou <a href="#"><strong>cadastre-se.</strong></a>
+        </span>
+      </div>
+    </div>
+
+    <!-- ═══ COLUNA DIREITA: ILUSTRAÇÃO BLUEPRINT ═══ -->
+    <div class="illustration-col">
+      <div class="blueprint">
+        <svg viewBox="0 0 420 460" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Grid de fundo blueprint -->
+          <g opacity="0.06">
+            <line x1="0" y1="40" x2="420" y2="40" stroke="#1D3557" stroke-width="1"/>
+            <line x1="0" y1="80" x2="420" y2="80" stroke="#1D3557" stroke-width="1"/>
+            <line x1="0" y1="120" x2="420" y2="120" stroke="#1D3557" stroke-width="1"/>
+            <line x1="0" y1="160" x2="420" y2="160" stroke="#1D3557" stroke-width="1"/>
+            <line x1="0" y1="200" x2="420" y2="200" stroke="#1D3557" stroke-width="1"/>
+            <line x1="0" y1="240" x2="420" y2="240" stroke="#1D3557" stroke-width="1"/>
+            <line x1="0" y1="280" x2="420" y2="280" stroke="#1D3557" stroke-width="1"/>
+            <line x1="0" y1="320" x2="420" y2="320" stroke="#1D3557" stroke-width="1"/>
+            <line x1="0" y1="360" x2="420" y2="360" stroke="#1D3557" stroke-width="1"/>
+            <line x1="0" y1="400" x2="420" y2="400" stroke="#1D3557" stroke-width="1"/>
+            <line x1="42" y1="0" x2="42" y2="460" stroke="#1D3557" stroke-width="1"/>
+            <line x1="84" y1="0" x2="84" y2="460" stroke="#1D3557" stroke-width="1"/>
+            <line x1="126" y1="0" x2="126" y2="460" stroke="#1D3557" stroke-width="1"/>
+            <line x1="168" y1="0" x2="168" y2="460" stroke="#1D3557" stroke-width="1"/>
+            <line x1="210" y1="0" x2="210" y2="460" stroke="#1D3557" stroke-width="1"/>
+            <line x1="252" y1="0" x2="252" y2="460" stroke="#1D3557" stroke-width="1"/>
+            <line x1="294" y1="0" x2="294" y2="460" stroke="#1D3557" stroke-width="1"/>
+            <line x1="336" y1="0" x2="336" y2="460" stroke="#1D3557" stroke-width="1"/>
+            <line x1="378" y1="0" x2="378" y2="460" stroke="#1D3557" stroke-width="1"/>
+          </g>
+
+          <!-- Edifício — esqueleto estrutural -->
+          <g stroke="#1D3557" stroke-width="2" fill="none">
+            <!-- Colunas verticais -->
+            <line x1="90" y1="380" x2="90" y2="90" />
+            <line x1="160" y1="380" x2="160" y2="90" />
+            <line x1="230" y1="380" x2="230" y2="90" />
+            <line x1="300" y1="380" x2="300" y2="90" />
+
+            <!-- Vigas horizontais (lajes) -->
+            <line x1="90" y1="320" x2="300" y2="320" />
+            <line x1="90" y1="260" x2="300" y2="260" />
+            <line x1="90" y1="200" x2="300" y2="200" />
+            <line x1="90" y1="140" x2="300" y2="140" />
+            <line x1="90" y1="90" x2="300" y2="90" />
+
+            <!-- Fundação (base) -->
+            <rect x="78" y="380" width="234" height="10" rx="2" stroke-width="2.5" />
+
+            <!-- Cruzamentos estruturais (contraventamento) -->
+            <line x1="90" y1="320" x2="160" y2="260" stroke-width="1.2" stroke="#457B9D" />
+            <line x1="160" y1="320" x2="90" y2="260" stroke-width="1.2" stroke="#457B9D" />
+            <line x1="160" y1="260" x2="230" y2="200" stroke-width="1.2" stroke="#457B9D" />
+            <line x1="230" y1="260" x2="160" y2="200" stroke-width="1.2" stroke="#457B9D" />
+          </g>
+
+          <!-- Guindaste / Grua -->
+          <g stroke="#457B9D" stroke-width="1.8" fill="none">
+            <!-- Torre vertical -->
+            <line x1="350" y1="380" x2="350" y2="50" stroke-width="2.5" stroke="#1D3557" />
+            <!-- Braço horizontal -->
+            <line x1="310" y1="50" x2="400" y2="50" stroke-width="2.5" stroke="#1D3557" />
+            <!-- Contra-peso -->
+            <rect x="310" y="30" width="18" height="20" rx="2" stroke-width="1.5" stroke="#457B9D" />
+            <!-- Cabo de aço -->
+            <line x1="390" y1="50" x2="390" y2="120" stroke-width="1" stroke="#457B9D" stroke-dasharray="4 3" />
+            <!-- Gancho -->
+            <path d="M390,120 L390,130 Q390,140 385,140 Q380,140 380,135" stroke-width="1.5" />
+            <!-- Detalhes treliçados da torre -->
+            <line x1="345" y1="60" x2="355" y2="80" stroke-width="0.8" />
+            <line x1="355" y1="60" x2="345" y2="80" stroke-width="0.8" />
+            <line x1="345" y1="100" x2="355" y2="120" stroke-width="0.8" />
+            <line x1="355" y1="100" x2="345" y2="120" stroke-width="0.8" />
+          </g>
+
+          <!-- Andaimes laterais -->
+          <g stroke="#457B9D" stroke-width="1.2" fill="none" opacity="0.7">
+            <line x1="70" y1="380" x2="70" y2="170" />
+            <line x1="60" y1="380" x2="60" y2="170" />
+            <!-- Degraus -->
+            <line x1="60" y1="360" x2="70" y2="360" />
+            <line x1="60" y1="340" x2="70" y2="340" />
+            <line x1="60" y1="320" x2="70" y2="320" />
+            <line x1="60" y1="300" x2="70" y2="300" />
+            <line x1="60" y1="280" x2="70" y2="280" />
+            <line x1="60" y1="260" x2="70" y2="260" />
+            <line x1="60" y1="240" x2="70" y2="240" />
+            <line x1="60" y1="220" x2="70" y2="220" />
+            <line x1="60" y1="200" x2="70" y2="200" />
+            <!-- Diagonal -->
+            <line x1="60" y1="360" x2="70" y2="340" stroke-width="0.8" />
+            <line x1="60" y1="320" x2="70" y2="300" stroke-width="0.8" />
+            <line x1="60" y1="280" x2="70" y2="260" stroke-width="0.8" />
+            <line x1="60" y1="240" x2="70" y2="220" stroke-width="0.8" />
+          </g>
+
+          <!-- Setas de cota (dimensão) -->
+          <g stroke="#E63946" stroke-width="1" opacity="0.5">
+            <line x1="310" y1="90" x2="310" y2="380" />
+            <polygon points="310,90 305,100 315,100" fill="#E63946" />
+            <polygon points="310,380 305,370 315,370" fill="#E63946" />
+          </g>
+
+          <!-- Texto técnico -->
+          <text x="315" y="240" font-family="'Inter',sans-serif" font-size="10" font-weight="600" fill="#E63946" opacity="0.6">+28,50m</text>
+          <text x="100" y="420" font-family="'Inter',sans-serif" font-size="10" font-weight="600" fill="#1D3557" opacity="0.5">CORTE AA — ESTRUTURA</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Alternar visibilidade da senha
+    const toggleBtn = document.getElementById('toggleSenha');
+    const senhaInput = document.getElementById('senha');
+
+    toggleBtn.addEventListener('click', () => {
+      const type = senhaInput.getAttribute('type') === 'password' ? 'text' : 'password';
+      senhaInput.setAttribute('type', type);
+      // Altera o ícone (opcional — aqui apenas troca o path do olho)
+      toggleBtn.innerHTML = type === 'password'
+        ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+             <circle cx="12" cy="12" r="3" />
+           </svg>`
+        : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+             <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+             <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+             <line x1="1" y1="1" x2="23" y2="23" />
+             <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+           </svg>`;
+    });
+  </script>
+</body>
+</html>
