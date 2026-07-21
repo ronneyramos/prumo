@@ -1,0 +1,37 @@
+{
+  "14_MIGRACAO_MEDICAO_ITENS.sql": {
+    "mtime": 1783908032.6033714,
+    "ast_hash": "801bcf632892013dfae2498448983e9d",
+    "semantic_hash": "801bcf632892013dfae2498448983e9d"
+  },
+  "alertas.py": {
+    "mtime": 1782683936.1382837,
+    "ast_hash": "9f7514ef01c6c6944bac2b4ffdd91bb2",
+    "semantic_hash": "9f7514ef01c6c6944bac2b4ffdd91bb2"
+  },
+  "configurar_rede.ps1": {
+    "mtime": 1783564108.1350243,
+    "ast_hash": "ebcfb2c00338f8ceda0faf3e8d1beb67",
+    "semantic_hash": "ebcfb2c00338f8ceda0faf3e8d1beb67"
+  },
+  "db.py": {
+    "mtime": 1783907589.6285975,
+    "ast_hash": "a168444425022a090ef22854e3209144",
+    "semantic_hash": "a168444425022a090ef22854e3209144"
+  },
+  "gerar_pdf.py": {
+    "mtime": 1783027919.4551318,
+    "ast_hash": "a56002f72f5a5df8e000d2424a48dc73",
+    "semantic_hash": "a56002f72f5a5df8e000d2424a48dc73"
+  },
+  "main.py": {
+    "mtime": 1783908801.5037124,
+    "ast_hash": "8cd9db796cb9aa59248e34db97fcab44",
+    "semantic_hash": "8cd9db796cb9aa59248e34db97fcab44"
+  },
+  "sync.py": {
+    "mtime": 1783907618.0766551,
+    "ast_hash": "9fd46ad171cf19fb7618f188539dc04b",
+    "semantic_hash": "9fd46ad171cf19fb7618f188539dc04b"
+  }
+}

@@ -82,9 +82,8 @@ def _carregar_obras_service():
         print(f"[_carregar_obras_service] ERRO: {e}")
         return None
 
-def _load_supabase_batch(emp_id: str) -> bool:
-    """Carrega todos os datasets do Supabase em paralelo. Retorna True se tudo ok."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+def _load_supabase_data(emp_id: str) -> bool:
+    """Carrega todos os datasets do Supabase em série."""
     _cargas = [
         ("obras",          sync.obras_load,          emp_id),
         ("contas_pagar",   sync.lancamentos_load,    "PAGAR", emp_id),
@@ -100,16 +99,12 @@ def _load_supabase_batch(emp_id: str) -> bool:
         ("movimentacoes",  sync.estoque_movimentos_load, emp_id),
     ]
     erros = []
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futuros = {ex.submit(lambda c: (c[0], c[1](*c[2:])), c): c[0] for c in _cargas}
-        for fut in as_completed(futuros):
-            chave = futuros[fut]
-            try:
-                dados = fut.result()[1]
-                st.session_state[chave] = dados
-            except Exception as _e:
-                print(f"[_init] Erro em {chave}: {_e}")
-                erros.append(chave)
+    for chave, fn, *args in _cargas:
+        try:
+            st.session_state[chave] = fn(*args)
+        except Exception as _e:
+            print(f"[_init] Erro em {chave}: {_e}")
+            erros.append(chave)
     return not erros
 
 
@@ -121,7 +116,7 @@ def _init():
         emp_id = st.session_state.get("empresa_id", "")
         ok = True
         if _supabase_ok():
-            ok = _load_supabase_batch(emp_id)
+            ok = _load_supabase_data(emp_id)
         if ok:
             st.session_state._erp_init_done = True
 

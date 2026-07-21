@@ -1,0 +1,23 @@
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8521
+  Network URL: http://192.168.1.14:8521
+  External URL: http://38.211.204.59:8521
+
++------------------------- Traceback (most recent call last) --------------------------+
+| C:\Users\ronne\AppData\Local\Programs\Python\Python311\Lib\site-packages\streamlit\r |
+| untime\scriptrunner\exec_code.py:129 in exec_func_with_error_handling                |
+|                                                                                      |
+| C:\Users\ronne\AppData\Local\Programs\Python\Python311\Lib\site-packages\streamlit\r |
+| untime\scriptrunner\script_runner.py:789 in code_to_exec                             |
+|                                                                                      |
+| C:\Users\ronne\Desktop\erp-construcao\streamlit\main.py:15 in <module>               |
+|                                                                                      |
+|     12 import importlib                                                              |
+|     13 import sync                                                                   |
+|     14 importlib.reload(sync)                                                        |
+| >   15 import db                                                                     |
+|     16 importlib.reload(db)                                                          |
+|     17                                                                               |
+|     18 st.set_page_config(page_title="Prumo ERP", layout="wide", page_icon="

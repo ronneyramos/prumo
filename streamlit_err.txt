@@ -1,0 +1,15 @@
+2026-07-13 14:09:35.498 Uvicorn server started on 0.0.0.0:8521
+2026-07-13 14:12:31.992 Uncaught app execution
+Traceback (most recent call last):
+  File "C:\Users\ronne\AppData\Local\Programs\Python\Python311\Lib\site-packages\streamlit\runtime\scriptrunner\exec_code.py", line 129, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+  File "C:\Users\ronne\AppData\Local\Programs\Python\Python311\Lib\site-packages\streamlit\runtime\scriptrunner\script_runner.py", line 789, in code_to_exec
+    exec(code, module.__dict__)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ronne\Desktop\erp-construcao\streamlit\main.py", line 15, in <module>
+    import db
+  File "C:\Users\ronne\Desktop\erp-construcao\streamlit\db.py", line 14, in <module>
+    @lru_cache(maxsize=1)
+     ^^^^^^^^^
+NameError: name 'lru_cache' is not defined

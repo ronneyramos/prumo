@@ -1,0 +1,519 @@
+{
+  "communities": {
+    "0": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_colaborador_atualizar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_colaborador_criar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_colaboradores_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_colmap_template_atualizar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_colmap_template_criar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_colmap_template_deletar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_colmap_templates_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_df",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_eap_itens_por_obra",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_eap_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_eap_upsert",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_estoque_entrada",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_estoque_saida",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_estoque_saldo",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_folha_criar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_folha_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_get_admin_client",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_get_client",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_inspecoes_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_insumo_criar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_insumos_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_lancamento_criar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_lancamentos_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_medicao_atualizar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_medicao_criar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_medicao_deletar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_medicao_itens_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_medicao_itens_salvar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_medicoes_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_nc_atualizar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_nc_criar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_ncs_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_obra_atualizar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_obra_criar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_obra_excluir",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_obra_patch",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_obras_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_orcado_realizado_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_orcado_realizado_por_obra",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_orcamento_criar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_orcamento_itens_inserir",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_orcamento_itens_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_orcamentos_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_ponto_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_ponto_registrar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_py",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_py_dataframe",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_rationale_1",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_rationale_231",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_rationale_28",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_rationale_53",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_rationale_72",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_resumo_obras_listar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_sb",
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_sb_admin",
+      "client"
+    ],
+    "1": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_estilos",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_fmt_brl",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_gerar_bm",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_gerar_folha_pagamento",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_gerar_orcamento",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_gerar_rdo",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_gerar_rdo_docx",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_gerar_relatorio_gerencial",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_gerar_relatorio_nc",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_num",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_pct",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_py",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_1",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_1035",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_1162",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_1245",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_244",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_31",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_419",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_461",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_651",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_763",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_829",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_rationale_96",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_tabela_detalhada",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_tabela_orcamento",
+      "c_users_ronne_desktop_erp_construcao_streamlit_gerar_pdf_tabela_resumo"
+    ],
+    "2": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_attr",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_colaboradores_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_estoque_movimentos_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_estoque_saldo_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_faltas_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_insumos_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_iso_to_br",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_lancamentos_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_medicoes_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_ncs_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_obras_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_ponto_registro_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_py_dataframe",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1218",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1242",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1271",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_153",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_386",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_560",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_626",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_64",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_requisicoes_load"
+    ],
+    "3": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_br_to_iso",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_colaborador_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_eap_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_eap_save_from_orcamento",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_eap_update_datas",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_empresa_id",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_medicao_itens_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_medicao_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_nc_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_obra_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_orcamento_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1034",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1085",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1118",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1141",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_16",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_463",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_510",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_97",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rdo_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_requisicao_save"
+    ],
+    "4": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_eap_save_all_progresso",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_eap_update_progresso",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_lancamento_delete",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_medicao_delete",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_medicao_itens_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_medicao_ultimo_pct",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_obra_delete",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_parse_fotos",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_py",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1130",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1158",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_452",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_500",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_525",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_835",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_855",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rdo_load",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rdo_update_fotos",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_requisicao_status_update",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_upload_rdo_foto"
+    ],
+    "5": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_auth_login",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_dados_obras_dash",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_dash_quick_nav",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_dev_log",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_norm_col",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_obras_validas",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_dev_panel",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_parse_num_br",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_py",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_199",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_354",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_3684",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_3693",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_supabase_ok"
+    ],
+    "6": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_exibir_oxr",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_obra_uuid",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_obra_valida",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_obras_nomes",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_medicao",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_orcado_realizado",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_orcamento",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_rdo",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_205",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_216",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_228",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_2958",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_46",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_show_toast"
+    ],
+    "7": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_app",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_apply_css",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_obras_filtradas",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_admin",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_pessoal",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_portal_contratante",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pode",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pos_login_choice",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_298",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_609",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_614",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_660",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_role"
+    ],
+    "8": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_carregar_obras_service",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_export_excel",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_init",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_next_id",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_financeiro",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_qualidade",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_suprimentos",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_py_dataframe",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_234",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_255",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_60",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_tabela_clicavel",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_uniq"
+    ],
+    "9": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_enviar_email",
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_enviar_resumo_alertas",
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_fmt",
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_py",
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_py_dataframe",
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_rationale_1",
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_rationale_124",
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_rationale_20",
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_rationale_55",
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_to_num",
+      "c_users_ronne_desktop_erp_construcao_streamlit_alertas_verificar_alertas"
+    ],
+    "10": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_dash_alert_banner",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_exibir_orcamento_processado",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_fmt",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_normalizar_orc_data",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_notify",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_dashboard",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_eap",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_224",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_238",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_3872",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_to_num"
+    ],
+    "11": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_limite_obras_atingido",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_obras",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_plano_info",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_35",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_638",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_sb_id"
+    ],
+    "12": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_colaborador_uuid_por_nome",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_falta_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_ponto_registro_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_548",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_592",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_660"
+    ],
+    "13": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_db_lancamento_atualizar",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_lancamento_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_lancamento_status_update",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_197",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_224"
+    ],
+    "14": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_limpar_col_num",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_nivel_eap",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_processar_orcamento",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_3746",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_3754"
+    ],
+    "15": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_estoque_movimento_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_get_or_create_insumo",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_695",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_716"
+    ],
+    "16": [
+      "prumo_erp_concept",
+      "static_building_png",
+      "static_logo_png"
+    ],
+    "17": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_limpar_cache",
+      "c_users_ronne_desktop_erp_construcao_streamlit_main_rationale_24"
+    ],
+    "18": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_eap_save_all_datas",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_1170"
+    ],
+    "19": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_medicao_update",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_428"
+    ],
+    "20": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_orcamento_save",
+      "c_users_ronne_desktop_erp_construcao_streamlit_sync_rationale_948"
+    ],
+    "21": [
+      "c_users_ronne_desktop_erp_construcao_streamlit_configurar_rede_ps1"
+    ],
+    "22": [
+      "requirements_openpyxl"
+    ],
+    "23": [
+      "requirements_pandas"
+    ],
+    "24": [
+      "requirements_pillow"
+    ],
+    "25": [
+      "requirements_plotly"
+    ],
+    "26": [
+      "requirements_python_docx"
+    ],
+    "27": [
+      "requirements_python_dotenv"
+    ],
+    "28": [
+      "requirements_reportlab"
+    ],
+    "29": [
+      "requirements_streamlit"
+    ],
+    "30": [
+      "requirements_supabase"
+    ],
+    "31": [
+      "requirements_xlrd"
+    ]
+  },
+  "cohesion": {
+    "0": 0.09090909090909091,
+    "1": 0.12535612535612536,
+    "2": 0.1341991341991342,
+    "3": 0.11428571428571428,
+    "4": 0.1,
+    "5": 0.15384615384615385,
+    "6": 0.26373626373626374,
+    "7": 0.21794871794871795,
+    "8": 0.3076923076923077,
+    "9": 0.2545454545454545,
+    "10": 0.2727272727272727,
+    "11": 0.4,
+    "12": 0.3333333333333333,
+    "13": 0.4,
+    "14": 0.4,
+    "15": 0.5,
+    "16": 0.6666666666666666,
+    "17": 1.0,
+    "18": 1.0,
+    "19": 1.0,
+    "20": 1.0,
+    "21": 1.0,
+    "22": 1.0,
+    "23": 1.0,
+    "24": 1.0,
+    "25": 1.0,
+    "26": 1.0,
+    "27": 1.0,
+    "28": 1.0,
+    "29": 1.0,
+    "30": 1.0,
+    "31": 1.0
+  },
+  "gods": [
+    {
+      "id": "c_users_ronne_desktop_erp_construcao_streamlit_db_sb",
+      "label": "sb()",
+      "degree": 75
+    },
+    {
+      "id": "c_users_ronne_desktop_erp_construcao_streamlit_db_df",
+      "label": "_df()",
+      "degree": 21
+    },
+    {
+      "id": "c_users_ronne_desktop_erp_construcao_streamlit_sync_empresa_id",
+      "label": "_empresa_id()",
+      "degree": 21
+    },
+    {
+      "id": "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_obras",
+      "label": "pagina_obras()",
+      "degree": 20
+    },
+    {
+      "id": "c_users_ronne_desktop_erp_construcao_streamlit_main_app",
+      "label": "app()",
+      "degree": 20
+    },
+    {
+      "id": "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_pessoal",
+      "label": "pagina_pessoal()",
+      "degree": 19
+    },
+    {
+      "id": "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_suprimentos",
+      "label": "pagina_suprimentos()",
+      "degree": 18
+    },
+    {
+      "id": "c_users_ronne_desktop_erp_construcao_streamlit_main_init",
+      "label": "_init()",
+      "degree": 17
+    },
+    {
+      "id": "c_users_ronne_desktop_erp_construcao_streamlit_main_obras_nomes",
+      "label": "_obras_nomes()",
+      "degree": 15
+    },
+    {
+      "id": "c_users_ronne_desktop_erp_construcao_streamlit_main_pagina_financeiro",
+      "label": "pagina_financeiro()",
+      "degree": 15
+    }
+  ],
+  "surprises": [
+    {
+      "source": "lancamento_delete()",
+      "target": "sb()",
+      "source_files": [
+        "sync.py",
+        "db.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities; peripheral node `lancamento_delete()` unexpectedly reaches hub `sb()`"
+    },
+    {
+      "source": "pagina_dev_panel()",
+      "target": "_enviar_email()",
+      "source_files": [
+        "main.py",
+        "alertas.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "pagina_suprimentos()",
+      "target": "_enviar_email()",
+      "source_files": [
+        "main.py",
+        "alertas.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "app()",
+      "target": "sb()",
+      "source_files": [
+        "main.py",
+        "db.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "_auth_login()",
+      "target": "sb()",
+      "source_files": [
+        "main.py",
+        "db.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `sb()` connect `Collaborator and EAP Management` to `Data Loading Utilities`, `Database Persistence Layer`, `Progress Tracking and Sync`, `Authentication and Main Entry`, `User Access and Navigation`, `Project and Plan Management`, `Financial Transaction Updates`, `Batch Date Updates`, `Budget Persistence`?",
+      "why": "High betweenness centrality (0.327) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `pagina_pessoal()` connect `User Access and Navigation` to `Collaborator and EAP Management`, `Authentication and Main Entry`, `Project and Measurement Pages`, `Financial and Quality Modules`, `Dashboard and UI Notifications`, `Project and Plan Management`?",
+      "why": "High betweenness centrality (0.064) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `_empresa_id()` connect `Database Persistence Layer` to `Data Loading Utilities`, `Progress Tracking and Sync`, `Project and Plan Management`, `Attendance and Time Tracking`, `Financial Transaction Updates`, `Inventory and Stock Management`, `Budget Persistence`?",
+      "why": "High betweenness centrality (0.063) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 26 inferred relationships involving `sb()` (e.g. with `app()` and `_auth_login()`) actually correct?",
+      "why": "`sb()` has 26 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 3 inferred relationships involving `pagina_obras()` (e.g. with `sb_admin()` and `_fmt()`) actually correct?",
+      "why": "`pagina_obras()` has 3 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `streamlit`, `supabase`, `pandas` to the rest of the system?",
+      "why": "12 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Collaborator and EAP Management` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.09090909090909091 - nodes in this community are weakly interconnected."
+    }
+  ]
+}
