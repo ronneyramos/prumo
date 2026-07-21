@@ -41,12 +41,12 @@ def _to_num(v) -> float:
     if isinstance(v, (int, float)): return float(v)
     s = str(v).strip().replace("R$","").replace(" ","").replace(".","").replace(",",".")
     try: return float(s)
-    except: return 0.0
+    except Exception: return 0.0
 
 
 def _fmt(v) -> str:
     try: return f"R$ {_to_num(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
-    except: return "R$ 0,00"
+    except Exception: return "R$ 0,00"
 
 
 def verificar_alertas(contas_pagar: pd.DataFrame,

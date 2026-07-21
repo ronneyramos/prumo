@@ -845,14 +845,14 @@ def gerar_relatorio_gerencial(dados: dict) -> bytes:
     def _num(v):
         try:
             return float(str(v).replace("R$","").replace(" ","").replace(".","").replace(",","."))
-        except:
+        except Exception:
             return 0.0
 
     def _brl(v):
         try:
             n = _num(v)
             return f"R$ {n:,.2f}".replace(",","X").replace(".",",").replace("X",".")
-        except:
+        except Exception:
             return "R$ 0,00"
 
     buf = _io.BytesIO()

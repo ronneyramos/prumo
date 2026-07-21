@@ -34,7 +34,6 @@ def sb() -> Client:
 
 # ── Cliente admin (service_role — apenas operações administrativas) ───────────
 
-@lru_cache(maxsize=1)
 def get_admin_client() -> Client | None:
     url  = os.environ.get("SUPABASE_URL", "")
     key  = os.environ.get("SUPABASE_SERVICE_KEY", "")
@@ -91,6 +90,40 @@ def colaborador_criar(dados: dict) -> dict:
 def colaborador_atualizar(col_id: str, dados: dict) -> dict:
     res = sb().table("colaboradores").update(dados).eq("id", col_id).execute()
     return res.data[0] if res.data else {}
+
+
+# ── ALOCAÇÕES / TRANSFERÊNCIAS ───────────────────────────────────────────────
+
+def alocacao_ativa(colaborador_id: str) -> dict | None:
+    """Retorna a alocação ativa (sem data_fim) de um colaborador, ou None."""
+    res = sb().table("alocacoes") \
+        .select("*, obras(id, nome)") \
+        .eq("colaborador_id", colaborador_id) \
+        .is_("data_fim", None) \
+        .limit(1) \
+        .execute()
+    return res.data[0] if res.data else None
+
+
+def alocacoes_listar(colaborador_id: str) -> list:
+    """Retorna todo o histórico de alocações de um colaborador."""
+    res = sb().table("alocacoes") \
+        .select("*, obras(id, nome)") \
+        .eq("colaborador_id", colaborador_id) \
+        .order("data_inicio", desc=True) \
+        .execute()
+    return res.data or []
+
+
+def alocacao_criar(dados: dict) -> dict:
+    """Cria uma nova alocação (transferência)."""
+    res = sb().table("alocacoes").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+
+def alocacao_finalizar(alocacao_id: str, data_fim: str):
+    """Encerra uma alocação (data_fim = data da transferência)."""
+    sb().table("alocacoes").update({"data_fim": data_fim}).eq("id", alocacao_id).execute()
 
 
 # ── FINANCEIRO — LANÇAMENTOS ─────────────────────────────────────────────────
@@ -216,6 +249,23 @@ def medicao_criar(dados: dict) -> dict:
     res = sb().table("medicoes").insert(dados).execute()
     return res.data[0] if res.data else {}
 
+def medicao_atualizar(medicao_id: str, dados: dict) -> dict:
+    res = sb().table("medicoes").update(dados).eq("id", medicao_id).execute()
+    return res.data[0] if res.data else {}
+
+def medicao_deletar(medicao_id: str):
+    sb().table("medicoes").delete().eq("id", medicao_id).execute()
+
+def medicao_itens_listar(medicao_id: str) -> list:
+    res = sb().table("medicao_itens").select("*").eq("medicao_id", medicao_id).order("codigo").execute()
+    return res.data or []
+
+def medicao_itens_salvar(medicao_id: str, itens: list):
+    """Substitui todos os itens de uma medição (delete + insert)."""
+    sb().table("medicao_itens").delete().eq("medicao_id", medicao_id).execute()
+    if itens:
+        sb().table("medicao_itens").insert(itens).execute()
+
 
 # ── PONTO ────────────────────────────────────────────────────────────────────
 
@@ -288,3 +338,203 @@ def colmap_template_atualizar(template_id: str, nome: str, mapping: dict) -> dic
 
 def colmap_template_deletar(template_id: str):
     sb().table("orcamento_colmap_templates").delete().eq("id", template_id).execute()
+
+
+# ── FORNECEDORES ─────────────────────────────────────────────────────────────
+
+def fornecedores_listar(empresa_id: str = None) -> pd.DataFrame:
+    q = sb().table("fornecedores").select("*").order("razao_social").execute()
+    return _df(q.data)
+
+def fornecedor_criar(dados: dict) -> dict:
+    res = sb().table("fornecedores").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+def fornecedor_atualizar(forn_id: str, dados: dict) -> dict:
+    res = sb().table("fornecedores").update(dados).eq("id", forn_id).execute()
+    return res.data[0] if res.data else {}
+
+def fornecedor_deletar(forn_id: str):
+    sb().table("fornecedores").delete().eq("id", forn_id).execute()
+
+
+# ── COTAÇÕES ──────────────────────────────────────────────────────────────────
+
+def cotacoes_listar(empresa_id: str = None) -> pd.DataFrame:
+    q = sb().table("cotacoes").select("*, fornecedores(razao_social, nome_fantasia), obras(nome)").order("data", desc=True).execute()
+    return _df(q.data)
+
+def cotacao_criar(dados: dict) -> dict:
+    res = sb().table("cotacoes").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+def cotacao_atualizar(cot_id: str, dados: dict) -> dict:
+    res = sb().table("cotacoes").update(dados).eq("id", cot_id).execute()
+    return res.data[0] if res.data else {}
+
+def cotacao_deletar(cot_id: str):
+    sb().table("cotacoes").delete().eq("id", cot_id).execute()
+
+def cotacao_itens_listar(cotacao_id: str) -> list:
+    res = sb().table("cotacao_itens").select("*").eq("cotacao_id", cotacao_id).order("id").execute()
+    return res.data or []
+
+def cotacao_itens_inserir(itens: list) -> list:
+    if not itens: return []
+    res = sb().table("cotacao_itens").insert(itens).execute()
+    return res.data or []
+
+def cotacao_itens_deletar(cotacao_id: str):
+    sb().table("cotacao_itens").delete().eq("cotacao_id", cotacao_id).execute()
+
+
+# ── CONCILIAÇÃO BANCÁRIA ──────────────────────────────────────────────────────
+
+def conciliacao_listar(empresa_id: str = None) -> pd.DataFrame:
+    q = sb().table("conciliacao").select("*").order("data_importacao", desc=True).execute()
+    return _df(q.data)
+
+def conciliacao_criar(dados: dict) -> dict:
+    res = sb().table("conciliacao").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+def conciliacao_atualizar(con_id: str, dados: dict) -> dict:
+    res = sb().table("conciliacao").update(dados).eq("id", con_id).execute()
+    return res.data[0] if res.data else {}
+
+def conciliacao_deletar(con_id: str):
+    sb().table("conciliacao").delete().eq("id", con_id).execute()
+
+def conciliacao_itens_listar(conciliacao_id: str) -> pd.DataFrame:
+    res = sb().table("conciliacao_itens").select("*").eq("conciliacao_id", conciliacao_id).order("data").execute()
+    return _df(res.data)
+
+def conciliacao_itens_inserir(itens: list) -> list:
+    if not itens: return []
+    res = sb().table("conciliacao_itens").insert(itens).execute()
+    return res.data or []
+
+def conciliacao_item_atualizar(item_id: str, dados: dict) -> dict:
+    res = sb().table("conciliacao_itens").update(dados).eq("id", item_id).execute()
+    return res.data[0] if res.data else {}
+
+
+# ── FÉRIAS ────────────────────────────────────────────────────────────────────
+
+def ferias_listar(empresa_id: str = None) -> pd.DataFrame:
+    q = sb().table("ferias").select("*, colaboradores(nome)").order("data_inicio", desc=True).execute()
+    return _df(q.data)
+
+def ferias_criar(dados: dict) -> dict:
+    res = sb().table("ferias").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+def ferias_atualizar(ferias_id: str, dados: dict) -> dict:
+    res = sb().table("ferias").update(dados).eq("id", ferias_id).execute()
+    return res.data[0] if res.data else {}
+
+
+# ── ADICIONAIS ────────────────────────────────────────────────────────────────
+
+def adicionais_listar(colaborador_id: str = None) -> pd.DataFrame:
+    q = sb().table("adicionais_funcionario").select("*")
+    if colaborador_id:
+        q = q.eq("colaborador_id", colaborador_id)
+    res = q.order("created_at", desc=True).execute()
+    return _df(res.data)
+
+def adicional_criar(dados: dict) -> dict:
+    res = sb().table("adicionais_funcionario").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+def adicional_atualizar(adicional_id: str, dados: dict) -> dict:
+    res = sb().table("adicionais_funcionario").update(dados).eq("id", adicional_id).execute()
+    return res.data[0] if res.data else {}
+
+def adicional_deletar(adicional_id: str):
+    sb().table("adicionais_funcionario").delete().eq("id", adicional_id).execute()
+
+
+# ── RESCISÃO ──────────────────────────────────────────────────────────────────
+
+def rescisoes_listar(empresa_id: str = None) -> pd.DataFrame:
+    q = sb().table("rescisoes").select("*, colaboradores(nome)").order("data_rescisao", desc=True).execute()
+    return _df(q.data)
+
+def rescicao_criar(dados: dict) -> dict:
+    res = sb().table("rescisoes").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+def rescicao_atualizar(resc_id: str, dados: dict) -> dict:
+    res = sb().table("rescisoes").update(dados).eq("id", resc_id).execute()
+    return res.data[0] if res.data else {}
+
+
+# ── SUBEMPREITEIROS ────────────────────────────────────────────────────────────
+
+def subempreiteiros_listar(empresa_id: str = None) -> pd.DataFrame:
+    q = sb().table("subempreiteiros").select("*").order("razao_social").execute()
+    return _df(q.data)
+
+def subempreiteiro_criar(dados: dict) -> dict:
+    res = sb().table("subempreiteiros").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+def subempreiteiro_atualizar(sub_id: str, dados: dict) -> dict:
+    res = sb().table("subempreiteiros").update(dados).eq("id", sub_id).execute()
+    return res.data[0] if res.data else {}
+
+def subempreiteiro_deletar(sub_id: str):
+    sb().table("subempreiteiros").delete().eq("id", sub_id).execute()
+
+def subempreiteiro_contratos_listar(subempreiteiro_id: str = None, obra_id: str = None) -> pd.DataFrame:
+    q = sb().table("subempreiteiro_contratos").select("*, obras(nome)")
+    if subempreiteiro_id:
+        q = q.eq("subempreiteiro_id", subempreiteiro_id)
+    if obra_id:
+        q = q.eq("obra_id", obra_id)
+    res = q.order("data_inicio", desc=True).execute()
+    return _df(res.data)
+
+def subempreiteiro_contrato_criar(dados: dict) -> dict:
+    res = sb().table("subempreiteiro_contratos").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+def subempreiteiro_contrato_atualizar(cont_id: str, dados: dict) -> dict:
+    res = sb().table("subempreiteiro_contratos").update(dados).eq("id", cont_id).execute()
+    return res.data[0] if res.data else {}
+
+def subempreiteiro_contrato_deletar(cont_id: str):
+    sb().table("subempreiteiro_contratos").delete().eq("id", cont_id).execute()
+
+def subempreiteiro_medicoes_listar(contrato_id: str = None) -> pd.DataFrame:
+    q = sb().table("subempreiteiro_medicoes").select("*")
+    if contrato_id:
+        q = q.eq("contrato_id", contrato_id)
+    res = q.order("mes_referencia", desc=True).execute()
+    return _df(res.data)
+
+def subempreiteiro_medicao_criar(dados: dict) -> dict:
+    res = sb().table("subempreiteiro_medicoes").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+def subempreiteiro_medicao_atualizar(med_id: str, dados: dict) -> dict:
+    res = sb().table("subempreiteiro_medicoes").update(dados).eq("id", med_id).execute()
+    return res.data[0] if res.data else {}
+
+def subempreiteiro_medicao_deletar(med_id: str):
+    sb().table("subempreiteiro_medicoes").delete().eq("id", med_id).execute()
+
+def subempreiteiro_documentos_listar(subempreiteiro_id: str = None) -> pd.DataFrame:
+    q = sb().table("subempreiteiro_documentos").select("*")
+    if subempreiteiro_id:
+        q = q.eq("subempreiteiro_id", subempreiteiro_id)
+    res = q.order("data_validade").execute()
+    return _df(res.data)
+
+def subempreiteiro_documento_criar(dados: dict) -> dict:
+    res = sb().table("subempreiteiro_documentos").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
+def subempreiteiro_documento_deletar(doc_id: str):
+    sb().table("subempreiteiro_documentos").delete().eq("id", doc_id).execute()
