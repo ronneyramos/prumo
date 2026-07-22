@@ -481,6 +481,62 @@ def nc_save(dados: dict, obra_sb_id: str | None = None,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# INSPEÇÕES / CHECKLISTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+_INSPECOES_COLS = ["ID","SB_ID","Data","Obra","Item Inspecionado","Responsável","Resultado","Observação"]
+
+
+@st.cache_data(ttl=60, show_spinner="Carregando inspeções...")
+def inspecoes_load(_empresa_id: str = "") -> pd.DataFrame:
+    empty = pd.DataFrame(columns=_INSPECOES_COLS)
+    try:
+        from db import inspecoes_listar
+        df = inspecoes_listar()
+        if df.empty:
+            return empty
+        rows = []
+        for i, row in enumerate(df.itertuples(index=False), start=1):
+            obra_nome = getattr(row, "obras", None)
+            if isinstance(obra_nome, dict):
+                obra_nome = obra_nome.get("nome", "")
+            rows.append({
+                "ID":                  i,
+                "SB_ID":               _attr(row, "id"),
+                "Data":                _iso_to_br(_attr(row, "data")),
+                "Obra":                obra_nome or "",
+                "Item Inspecionado":   _attr(row, "item_inspecionado"),
+                "Responsável":         _attr(row, "responsavel"),
+                "Resultado":           _attr(row, "resultado"),
+                "Observação":          _attr(row, "observacao"),
+            })
+        return pd.DataFrame(rows)
+    except Exception:
+        print("[sync.inspecoes_load] ERRO:\n", traceback.format_exc())
+        return empty
+
+
+def inspecao_save(dados: dict, obra_sb_id: str | None = None,
+                  sb_id: str | None = None) -> str | None:
+    try:
+        from db import inspecao_criar
+        payload = {
+            "obra_id":            obra_sb_id,
+            "data":               _br_to_iso(dados.get("Data")) or datetime.today().strftime("%Y-%m-%d"),
+            "item_inspecionado":  dados.get("Item Inspecionado") or "",
+            "responsavel":        dados.get("Responsável") or "",
+            "resultado":          dados.get("Resultado"),
+            "observacao":         dados.get("Observação") or None,
+            "empresa_id":         _empresa_id(),
+        }
+        res = inspecao_criar(payload)
+        return (res or {}).get("id")
+    except Exception:
+        print("[sync.inspecao_save] ERRO:\n", traceback.format_exc())
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MEDIÇÕES
 # ─────────────────────────────────────────────────────────────────────────────
 

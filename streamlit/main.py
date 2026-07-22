@@ -111,7 +111,7 @@ def _load_supabase_data(emp_id: str) -> bool:
 def _init():
     _first = not st.session_state.get("_erp_init_done")
 
-    # ── Carrega do Supabase (paralelo) na primeira vez ───────────────────────
+    # ── Carrega do Supabase na primeira vez ──────────────────────────────────
     if _first:
         emp_id = st.session_state.get("empresa_id", "")
         ok = True
@@ -156,16 +156,8 @@ def _init():
         ])
     if "medicoes" not in st.session_state:
         st.session_state.medicoes = pd.DataFrame(columns=["ID","Data","Obra","Período","% Medido","Valor Medido (R$)","Observação"])
-    if "checklists" not in st.session_state:
-        st.session_state.checklists = pd.DataFrame({
-            "ID": list(range(1,9)),
-            "Data": ["10/06/2026","12/06/2026","15/06/2026","18/06/2026","20/06/2026","22/06/2026","23/06/2026","24/06/2026"],
-            "Obra": ["Residencial Beira Mar"]*4+["Comercial Centro"]*4,
-            "Item Inspecionado": ["Concretagem pilar P-12","Alvenaria 1º pav. bloco A","Revestimento fachada","Inst. elétrica quadro Q-01","Fundação sapata S-05","Estrutura metálica nível 2","Impermeabilização reservatório","Inst. hidrossanitárias"],
-            "Responsável": ["Eng. Carlos","Mestre Paulo","Eng. Carlos","Eng. Carlos","Eng. Ana","Eng. Ana","Eng. Ana","Eng. Ana"],
-            "Resultado": ["Aprovado","Aprovado","Reprovado","Aprovado","Aprovado","Aprovado","Reprovado","Aprovado"],
-            "Observação": ["Resistência atingida","Prumo dentro da tolerância","Rachadura detectada","Aterramento OK","Armadura correta","Soldas conferidas","Falha de continuidade","Estanqueidade OK"],
-        })
+    if "inspecoes" not in st.session_state:
+        st.session_state.inspecoes = pd.DataFrame(columns=["ID","SB_ID","Data","Obra","Item Inspecionado","Responsável","Resultado","Observação"])
     if "orcamento_df"       not in st.session_state: st.session_state.orcamento_df       = None
     if "orcamento_nome"     not in st.session_state: st.session_state.orcamento_nome     = None
     if "orcamento_por_obra" not in st.session_state: st.session_state.orcamento_por_obra = {}
@@ -4438,7 +4430,7 @@ def pagina_pessoal():
         "Técnico de Segurança do Trabalho","Auxiliar Administrativo",
         "Almoxarife","Apontador","Motorista",
     ]
-    with t4:
+    with t7:
         with st.form("form_novo_func"):
             c1,c2 = st.columns(2)
             nome_nf     = c1.text_input("Nome *")
@@ -4631,20 +4623,25 @@ def pagina_qualidade():
     t1,t2,t3,t4 = st.tabs(["📋 Checklists","⚠️ Não-Conformidades","➕ Nova Inspeção","➕ Abrir NC"])
 
     with t1:
-        chk = st.session_state.checklists.copy()
+        if "inspecoes" not in st.session_state:
+            try:
+                st.session_state.inspecoes = sync.inspecoes_load()
+            except Exception:
+                st.session_state.inspecoes = pd.DataFrame(columns=["ID","SB_ID","Data","Obra","Item Inspecionado","Responsável","Resultado","Observação"])
+        chk = st.session_state.inspecoes.copy()
         cf1,cf2 = st.columns(2)
         fo_q = cf1.selectbox("Obra",      ["Todas"]+_uniq(chk["Obra"]),      key="fq_ob")
         fr_q = cf2.selectbox("Resultado", ["Todos"]+_uniq(chk["Resultado"]),  key="fq_res")
         if fo_q != "Todas": chk = chk[chk["Obra"]==fo_q]
         if fr_q != "Todos": chk = chk[chk["Resultado"]==fr_q]
-        tot = st.session_state.checklists
+        tot = st.session_state.inspecoes
         c1,c2,c3 = st.columns(3)
         c1.metric("Total Inspeções", len(tot))
         c2.metric("Aprovadas",  len(tot[tot["Resultado"]=="Aprovado"]))
         c3.metric("Reprovadas", len(tot[tot["Resultado"]=="Reprovado"]))
         st.markdown("---")
         bdg = {"Aprovado":"🟢","Reprovado":"🔴"}
-        ex_q = chk.drop(columns=[c for c in ["ID","SB_ID"] if c in chk.columns]).copy()
+        ex_q = chk.drop(columns=[c for c in ["ID","SB_ID"] if c in chk.columns], errors="ignore").copy()
         ex_q["Resultado"] = ex_q["Resultado"].apply(lambda r:f"{bdg.get(r,'⚪')} {r}")
         st.dataframe(ex_q,width='stretch',hide_index=True)
         st.download_button("⬇️ Exportar Excel", data=_export_excel(ex_q), file_name="checklists.xlsx",
@@ -4724,7 +4721,19 @@ def pagina_qualidade():
             obs_chk   = c1.text_area("Observação",height=80)
             ok_chk    = st.form_submit_button("✅ Registrar Inspeção",type="primary")
         if ok_chk:
-            st.session_state.checklists = pd.concat([st.session_state.checklists,pd.DataFrame([{"ID":_next_id(st.session_state.checklists),"Data":date.today().strftime("%d/%m/%Y"),"Obra":obra_chk,"Item Inspecionado":item_chk,"Responsável":resp_chk,"Resultado":res_chk,"Observação":obs_chk}])],ignore_index=True)
+            dados_chk = {
+                "Data": date.today().strftime("%d/%m/%Y"),
+                "Obra": obra_chk,
+                "Item Inspecionado": item_chk,
+                "Responsável": resp_chk,
+                "Resultado": res_chk,
+                "Observação": obs_chk,
+            }
+            uuid_chk = sync.inspecao_save(dados_chk, obra_sb_id=_obra_uuid(obra_chk))
+            df_nova = pd.DataFrame([{"ID": _next_id(st.session_state.inspecoes) if not st.session_state.inspecoes.empty else 1,
+                                     "SB_ID": uuid_chk or None, **dados_chk}])
+            st.session_state.inspecoes = pd.concat(
+                [st.session_state.inspecoes, df_nova], ignore_index=True)
             _res_icon = "🟢" if res_chk == "Aprovado" else "🔴"
             _notify(f"✅ Inspeção de **{item_chk}** registrada! Resultado: {_res_icon} {res_chk}"); st.rerun()
 

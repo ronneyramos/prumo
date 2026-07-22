@@ -184,6 +184,10 @@ def inspecoes_listar(obra_id: str = None) -> pd.DataFrame:
     res = q.execute()
     return _df(res.data)
 
+def inspecao_criar(dados: dict) -> dict:
+    res = sb().table("inspecoes").insert(dados).execute()
+    return res.data[0] if res.data else {}
+
 def ncs_listar(obra_id: str = None) -> pd.DataFrame:
     q = sb().table("nao_conformidades").select("*, obras(nome)").order("created_at", desc=True)
     if obra_id:
