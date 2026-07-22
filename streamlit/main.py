@@ -417,6 +417,20 @@ def _auth_login():
             width: 100%; flex: 1; display: block;
             object-fit: cover; object-position: center 30%;
         }
+        @media (max-width: 768px) {
+            section[data-testid="stHorizontalBlock"] {
+                flex-direction: column !important;
+            }
+            section[data-testid="stHorizontalBlock"] > div {
+                min-width: 100% !important;
+            }
+            .login-illus-wrap { display: none !important; }
+            .main .block-container {
+                padding-left: 0.8rem !important;
+                padding-right: 0.8rem !important;
+            }
+            [data-testid="stForm"] { padding: 20px 16px !important; }
+        }
     </style>""", unsafe_allow_html=True)
 
     col_form, col_illus = st.columns([1, 1], gap="large")
@@ -7307,6 +7321,72 @@ def _apply_css():
             font-weight: 500;
             padding: 8px 0;
             margin: 0;
+        }
+
+        /* ── Responsivo ──────────────────────────────────────────────────── */
+        @media (max-width: 900px) {
+            .main .block-container {
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+                max-width: 100% !important;
+            }
+            h1 { font-size: 1.3rem !important; }
+            [data-testid="stMetricValue"] { font-size: 1.3rem !important; }
+            [data-testid="stMetric"] { padding: 14px !important; }
+            [data-testid="column"] { min-width: 100% !important; }
+            [data-testid="stTabs"] button[role="tab"] {
+                font-size: 11px !important;
+                padding: 8px 10px !important;
+            }
+            .dash-card { padding: 12px 14px 16px; }
+            section[data-testid="stSidebar"] {
+                width: 260px !important;
+            }
+        }
+        @media (max-width: 600px) {
+            .main .block-container {
+                padding-top: 1rem !important;
+                padding-bottom: 1rem !important;
+            }
+            h1 { font-size: 1.1rem !important; margin-bottom: 0.8rem !important; }
+            [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+            [data-testid="stMetric"] { padding: 10px 12px !important; }
+            [data-testid="stMetric"] label { font-size: 9px !important; }
+            [data-testid="stTabs"] {
+                overflow-x: auto !important;
+                flex-wrap: nowrap !important;
+            }
+            [data-testid="stTabs"] button[role="tab"] {
+                font-size: 10px !important;
+                padding: 6px 8px !important;
+                white-space: nowrap !important;
+            }
+            button[kind="primary"],
+            button[kind="secondary"] {
+                font-size: 12px !important;
+                padding: 6px 12px !important;
+            }
+            [data-testid="stDataFrameResizable"] {
+                font-size: 11px !important;
+            }
+            [data-testid="stDataFrameResizable"] th {
+                font-size: 10px !important;
+            }
+            [data-testid="stTextInput"] input,
+            [data-testid="stNumberInput"] input {
+                font-size: 16px !important;
+            }
+            section[data-testid="stSidebar"] {
+                width: 240px !important;
+            }
+            section[data-testid="stSidebar"] button[kind="secondary"],
+            section[data-testid="stSidebar"] button[kind="primary"] {
+                font-size: 12px !important;
+            }
+            .dash-card { padding: 10px 12px 14px; }
+            [data-testid="stExpander"] {
+                font-size: 12px !important;
+            }
         }
     </style>""", unsafe_allow_html=True)
 
