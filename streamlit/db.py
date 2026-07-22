@@ -5,7 +5,7 @@ Todas as leituras e escritas do banco passam por aqui.
 import os
 from functools import lru_cache
 from dotenv import load_dotenv
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 import pandas as pd
 
 load_dotenv()
@@ -21,7 +21,8 @@ def get_client() -> Client:
             "⚠️ Credenciais do Supabase não configuradas.\n"
             "Edite o arquivo .env com SUPABASE_URL e SUPABASE_ANON_KEY."
         )
-    return create_client(url, key)
+    opts = ClientOptions(postgrest_client_timeout=10)
+    return create_client(url, key, options=opts)
 
 
 def sb() -> Client:
@@ -39,7 +40,8 @@ def get_admin_client() -> Client | None:
     key  = os.environ.get("SUPABASE_SERVICE_KEY", "")
     if not url or not key:
         return None
-    return create_client(url, key)
+    opts = ClientOptions(postgrest_client_timeout=10)
+    return create_client(url, key, options=opts)
 
 
 def sb_admin() -> Client | None:

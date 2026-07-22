@@ -1,7 +1,7 @@
 streamlit==1.58.0
 supabase==2.31.0
 pandas==3.0.3
-numpy==2.2.5
+numpy>=2.3.3
 scipy==1.15.3
 plotly==6.8.0
 reportlab==5.0.0
