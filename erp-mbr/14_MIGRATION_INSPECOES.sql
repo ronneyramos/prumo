@@ -22,13 +22,13 @@ DROP POLICY IF EXISTS p_insp_update ON public.inspecoes;
 DROP POLICY IF EXISTS p_insp_delete ON public.inspecoes;
 
 CREATE POLICY p_insp_select ON public.inspecoes FOR SELECT TO authenticated
-  USING (empresa_id = public.get_empresa_id());
+  USING (empresa_id = ((auth.jwt()->'user_metadata'->>'empresa_id')::UUID));
 
 CREATE POLICY p_insp_insert ON public.inspecoes FOR INSERT TO authenticated
-  WITH CHECK (empresa_id = public.get_empresa_id());
+  WITH CHECK (empresa_id = ((auth.jwt()->'user_metadata'->>'empresa_id')::UUID));
 
 CREATE POLICY p_insp_update ON public.inspecoes FOR UPDATE TO authenticated
-  USING (empresa_id = public.get_empresa_id());
+  USING (empresa_id = ((auth.jwt()->'user_metadata'->>'empresa_id')::UUID));
 
 CREATE POLICY p_insp_delete ON public.inspecoes FOR DELETE TO authenticated
-  USING (empresa_id = public.get_empresa_id());
+  USING (empresa_id = ((auth.jwt()->'user_metadata'->>'empresa_id')::UUID));
