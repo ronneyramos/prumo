@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 import io
 import unicodedata
 import importlib
@@ -2463,13 +2463,15 @@ def pagina_suprimentos():
                                        "Responsável": resp_m, "NF/Doc": doc_m}])
                     ], ignore_index=True)
                     try:
-                        sync.estoque_movimento_save(
+                        _ok_mov = sync.estoque_movimento_save(
                             {"Insumo": insumo_m, "Unidade": _un_ref, "Tipo": "Saída",
                              "Quantidade": qtd_m, "Observação": doc_m},
                             _obra_uuid(obra_m) if _obra_valida(obra_m) else None
                         )
                     except Exception:
-                        st.warning("Movimento salvo localmente, mas falhou sincronização.")
+                        _ok_mov = False
+                    if not _ok_mov:
+                        _notify("⚠️ Movimento salvo localmente, mas falhou sincronização.")
                     st.success(
                         f"✅ Saída de **{qtd_m:.2f} {_un_ref}** de **{insumo_m}** registrada. "
                         f"Saldo restante em {obra_m}: **{novo_saldo:.2f} {_un_ref}**"
@@ -2502,13 +2504,15 @@ def pagina_suprimentos():
                                    "Responsável": resp_m, "NF/Doc": doc_m}])
                 ], ignore_index=True)
                 try:
-                    sync.estoque_movimento_save(
+                    _ok_mov = sync.estoque_movimento_save(
                         {"Insumo": insumo_m, "Unidade": _un_ref, "Tipo": "Entrada",
                          "Quantidade": qtd_m, "Observação": doc_m},
                         _obra_uuid(obra_m) if _obra_valida(obra_m) else None
                     )
                 except Exception:
-                    st.warning("Movimento salvo localmente, mas falhou sincronização.")
+                    _ok_mov = False
+                if not _ok_mov:
+                    _notify("⚠️ Movimento salvo localmente, mas falhou sincronização.")
                 st.rerun()
 
     elif aba == "📋 Cotações":
@@ -2521,6 +2525,8 @@ def pagina_suprimentos():
         tab_lista, tab_nova = st.tabs(["📋 Lista de Cotações", "➕ Nova Cotação"])
 
         with tab_nova:
+            # Fora do form para que as linhas de itens apareçam ao mudar a quantidade
+            qtd_itens = st.number_input("Quantidade de itens", min_value=1, max_value=50, value=1, step=1, key="qtd_itens_cot")
             with st.form("form_cotacao"):
                 c1, c2 = st.columns(2)
                 forn_opts = _uniq(st.session_state.fornecedores["Razão Social"]) if "fornecedores" in st.session_state and not st.session_state.fornecedores.empty else []
@@ -2534,7 +2540,6 @@ def pagina_suprimentos():
 
                 st.markdown("##### Itens da Cotação")
                 st.caption("Adicione os itens com quantidade e preço")
-                qtd_itens = st.number_input("Quantidade de itens", min_value=1, max_value=50, value=1, step=1, key="qtd_itens_cot")
 
                 itens_data = []
                 for idx in range(int(qtd_itens)):
@@ -2557,7 +2562,7 @@ def pagina_suprimentos():
                     dados_c = {"Fornecedor": forn_c, "Obra": obra_c,
                                "Data": data_c, "Validade": val_c,
                                "Condição Pag.": cond_c, "Prazo Entrega": str(prazo_c),
-                               "Total (R$)": total, "Vencedora": "Não"}
+                               "Total (R$)": total, "Vencedora": "Não", "Observação": obs_c}
                     sb_id_c = cotacao_save(dados_c, itens_data)
                     st.session_state.cotacoes = pd.concat([
                         st.session_state.cotacoes,
@@ -2739,9 +2744,10 @@ def pagina_suprimentos():
                             if rz.strip():
                                 dados_sub = {"Razão Social": rz, "Nome Fantasia": nf, "CNPJ": cnpj,
                                              "Contato": contato, "Telefone": tel, "Email": email,
-                                             "CREA/CA": crea, "Especialidades": esp, "Ativo": "Sim"}
-                                _sb_id = subempreiteiro_save(dados_sub)
-                                if _sb_id:
+                                             "CREA/CA": crea, "Especialidades": esp, "Ativo": "Sim",
+                                             "Endereço": ender, "Observações": obs}
+                                _sub_uuid = subempreiteiro_save(dados_sub)
+                                if _sub_uuid:
                                     st.session_state["_sub_form"] = False
                                     st.cache_data.clear()
                                     st.session_state.subempreiteiros_df = subempreiteiros_load()
@@ -2912,6 +2918,7 @@ def pagina_suprimentos():
                                         "Valor Líquido": med_vl,
                                         "Data Pagamento": med_dp.isoformat() if med_dp else None,
                                         "Status": "aprovado" if med_val_aprov > 0 else "medido",
+                                        "Observações": med_obs,
                                     }
                                     subempreiteiro_medicao_save(dados_med)
                                     st.cache_data.clear()
@@ -3054,6 +3061,17 @@ def pagina_suprimentos():
                                    "Obra": obra_nf, "Responsável": forn_nf.strip(),
                                    "NF/Doc": num_nf}])
                 ], ignore_index=True)
+                try:
+                    _ok_mov_nf = sync.estoque_movimento_save(
+                        {"Insumo": insumo_final, "Unidade": un_nf or "un", "Tipo": "Entrada",
+                         "Quantidade": qtd_nf, "Custo Unit.": val_nf / qtd_nf if qtd_nf else None,
+                         "Observação": f"{num_nf} — {obs_nf}" if obs_nf.strip() else num_nf},
+                        _obra_uuid(obra_nf) if _obra_valida(obra_nf) else None
+                    )
+                except Exception:
+                    _ok_mov_nf = False
+                if not _ok_mov_nf:
+                    _notify("⚠️ Entrada de estoque salva localmente, mas falhou sincronização.")
                 # 2. Estoque — busca por Insumo + Obra para não misturar saldos entre obras
                 mask_e = (
                     (st.session_state.estoque["Insumo"] == insumo_final) &
@@ -6172,8 +6190,8 @@ def pagina_eap():
                 if desc and (di or dt):
                     kd = desc[:60]
                     _loaded[kd] = {
-                        "ini": _iso_to_br(str(di)) if di else "",
-                        "fim": _iso_to_br(str(dt)) if dt else "",
+                        "ini": sync._iso_to_br(str(di)) if di else "",
+                        "fim": sync._iso_to_br(str(dt)) if dt else "",
                         "desc": desc,
                     }
             if _loaded:

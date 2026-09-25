@@ -892,13 +892,19 @@ def estoque_movimento_save(dados: dict, obra_sb_id: str | None = None) -> bool:
         if not insumo_id:
             return False
 
+        if not obra_sb_id:  # obra_id é NOT NULL na tabela
+            return False
+
+        # A tabela não tem "observacao"; o documento/NF vai em "origem"
         payload = {
             "insumo_id":  insumo_id,
             "obra_id":    obra_sb_id,
             "quantidade": qtd,
-            "observacao": obs,
+            "origem":     obs,
             "empresa_id": _empresa_id(),
         }
+        if dados.get("Custo Unit."):
+            payload["custo_unit"] = float(dados["Custo Unit."])
         if tipo == "Entrada":
             estoque_entrada(payload)
         else:
@@ -1557,7 +1563,7 @@ def cotacoes_load(_empresa_id: str = "") -> pd.DataFrame:
                 "Total (R$)": float(getattr(row, "total", 0) or 0),
                 "Validade": str(getattr(row, "validade", "") or "")[:10],
                 "Condição Pag.": getattr(row, "condicao_pagamento", "") or "",
-                "Prazo Entrega": str(getattr(row, "prazo_entrega_dias", "") or ""),
+                "Prazo Entrega": str(getattr(row, "prazo_entrega", "") or ""),
                 "Vencedora": "Sim" if getattr(row, "vencedora", False) else "Não",
             })
         return pd.DataFrame(rows)
@@ -1574,7 +1580,8 @@ def cotacao_save(dados: dict, itens: list[dict] | None = None, sb_id: str | None
             "data": dados.get("Data") or None,
             "validade": dados.get("Validade") or None,
             "condicao_pagamento": dados.get("Condição Pag.") or None,
-            "prazo_entrega_dias": int(dados.get("Prazo Entrega")) if str(dados.get("Prazo Entrega", "") or "").strip() else None,
+            "prazo_entrega": str(dados.get("Prazo Entrega") or "").strip() or None,
+            "observacao": dados.get("Observação") or None,
             "total": float(dados.get("Total (R$)", 0) or 0),
             "vencedora": dados.get("Vencedora", "Não") == "Sim",
             "empresa_id": eid,
@@ -1960,6 +1967,11 @@ def subempreiteiro_save(dados: dict, sb_id: str | None = None) -> str | None:
             "ativo": dados.get("Ativo", "Sim") == "Sim",
             "empresa_id": _empresa_id(),
         }
+        # Só envia se o formulário tiver o campo, para não apagar dados numa edição
+        if "Endereço" in dados:
+            payload["endereco"] = dados.get("Endereço") or None
+        if "Observações" in dados:
+            payload["observacoes"] = dados.get("Observações") or None
         res = subempreiteiro_atualizar(sb_id, payload) if sb_id else subempreiteiro_criar(payload)
         return (res or {}).get("id")
     except Exception:

@@ -602,7 +602,7 @@ def importar_medicoes(obra_ids: dict):
                 inseridas += 1
                 next_num += 1
             except Exception as e:
-                print(f"  [!] Erro medicao {rotulo}#{num}: {e}")
+                print(f"  [!] Erro medicao {rotulo}#{numero}: {e}")
 
         if inseridas:
             print(f"  {rotulo}: {inseridas} medicoes importadas")
