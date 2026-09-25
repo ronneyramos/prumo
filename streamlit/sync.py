@@ -4,21 +4,43 @@ e o Supabase (tabelas snake_case, UUIDs, datas ISO).
 """
 from __future__ import annotations
 
+import functools
 import traceback
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-_MBR_EMPRESA_ID = "00000000-0000-0000-0000-000000000001"
 
-
-def _empresa_id() -> str:
-    """Obtém empresa_id da sessão Streamlit ou retorna o padrão MBR."""
+def _empresa_id() -> str | None:
+    """empresa_id da sessão logada. Sem sessão, None (o banco preenche pelo JWT)."""
     try:
-        import streamlit as _st
-        return _st.session_state.get("empresa_id") or _MBR_EMPRESA_ID
+        return st.session_state.get("empresa_id") or None
     except Exception:
-        return _MBR_EMPRESA_ID
+        return None
+
+
+def _cache_por_empresa(**cache_kwargs):
+    """st.cache_data com a empresa logada sempre na chave do cache.
+
+    Sem isso, o resultado carregado por uma empresa seria servido a outra
+    (parâmetros iniciados com "_" não entram na chave do st.cache_data).
+    """
+    def deco(fn):
+        def _cached(empresa_chave, *args, **kwargs):
+            return fn(*args, **kwargs)
+        # O st.cache_data identifica a função por módulo + qualname + código-fonte;
+        # sem um nome único, todas as funções decoradas dividiriam o mesmo cache.
+        _cached.__qualname__ = f"{fn.__qualname__}__por_empresa"
+        _cached.__name__ = _cached.__qualname__
+        _cached = st.cache_data(**cache_kwargs)(_cached)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            return _cached(_empresa_id() or "", *args, **kwargs)
+
+        wrapper.clear = _cached.clear
+        return wrapper
+    return deco
 
 
 def _iso_to_br(val) -> str:
@@ -59,8 +81,8 @@ _OBRAS_COLS = ["ID","SB_ID","Nome","Tipo","Cliente","CNPJ Cliente",
                "Término","% Físico","Status","Responsável"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando obras...")
-def obras_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando obras...")
+def obras_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega obras do Supabase → formato app."""
     empty = pd.DataFrame(columns=_OBRAS_COLS)
     try:
@@ -148,8 +170,8 @@ _STATUS_APP_PAGAR   = {"Previsto": "A Pagar",  "Pago": "Pago",     "Cancelado": 
 _STATUS_APP_RECEBER = {"Previsto": "A Receber", "Pago": "Recebido", "Cancelado": "Cancelado", "Aprovado": "A Receber"}
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando lancamentos...")
-def lancamentos_load(tipo: str, _empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando lancamentos...")
+def lancamentos_load(tipo: str, _empresa_ignorado: str = "") -> pd.DataFrame:
     """tipo: 'PAGAR' | 'RECEBER'. Retorna DataFrame vazio se falhar."""
     empty = pd.DataFrame(columns=_PAGAR_COLS if tipo == "PAGAR" else _RECEBER_COLS)
     try:
@@ -245,8 +267,8 @@ _FUNC_COLS = ["ID","SB_ID","Nome","Cargo","Tipo Contrato","Obra",
               "Salário (R$)","Admissão","Situação"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando colaboradores...")
-def colaboradores_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando colaboradores...")
+def colaboradores_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_FUNC_COLS)
     try:
         from db import colaboradores_listar, alocacao_ativa
@@ -356,7 +378,7 @@ def _obra_uuid_por_nome(nome: str) -> str | None:
         return None
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando histórico...")
+@_cache_por_empresa(ttl=60, show_spinner="Carregando histórico...")
 def alocacoes_load(colaborador_sb_id: str) -> list[dict]:
     """Carrega histórico de alocações de um colaborador."""
     try:
@@ -427,8 +449,8 @@ _NC_COLS = ["ID","SB_ID","Data Abertura","Obra","Descrição","Gravidade",
             "Responsável","Status","Prazo","Ação Corretiva"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando NCs...")
-def ncs_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando NCs...")
+def ncs_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_NC_COLS)
     try:
         from db import ncs_listar
@@ -487,8 +509,8 @@ def nc_save(dados: dict, obra_sb_id: str | None = None,
 _INSPECOES_COLS = ["ID","SB_ID","Data","Obra","Item Inspecionado","Responsável","Resultado","Observação"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando inspeções...")
-def inspecoes_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando inspeções...")
+def inspecoes_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_INSPECOES_COLS)
     try:
         from db import inspecoes_listar
@@ -543,8 +565,8 @@ def inspecao_save(dados: dict, obra_sb_id: str | None = None,
 _MED_COLS = ["ID","SB_ID","Data","Obra","Período","% Medido","Valor Medido (R$)","Observação"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando medicoes...")
-def medicoes_load(_cid: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando medicoes...")
+def medicoes_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega todas as medições de todas as obras."""
     empty = pd.DataFrame(columns=_MED_COLS)
     try:
@@ -717,8 +739,8 @@ def _colaborador_uuid_por_nome(nome: str) -> str | None:
         return None
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando ponto...")
-def faltas_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando ponto...")
+def faltas_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega registros de ponto onde falta=True."""
     empty = pd.DataFrame(columns=_PONTO_COLS)
     try:
@@ -783,8 +805,8 @@ _PONTO_REGISTRO_COLS = ["ID","SB_ID","Data","Funcionário","Obra","Entrada","Sa�
                          "Retorno Almoço","Saída","Horas Normais","Horas Extras","Observação"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando registros de ponto...")
-def ponto_registro_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando registros de ponto...")
+def ponto_registro_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega registros de ponto com horário batido (falta=False)."""
     empty = pd.DataFrame(columns=_PONTO_REGISTRO_COLS)
     try:
@@ -935,8 +957,8 @@ def _parse_fotos(v):
     return []
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando RDO...")
-def rdo_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando RDO...")
+def rdo_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     try:
         from db import sb
         res = sb().table("rdo").select("*, obras(nome)").order("data", desc=True).execute()
@@ -1039,8 +1061,8 @@ _REQ_COLS = ["ID", "SB_ID", "Data", "Obra", "Insumo", "Quantidade",
              "Aprovado Por", "Data Aprovação"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando requisicoes...")
-def requisicoes_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando requisicoes...")
+def requisicoes_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_REQ_COLS)
     try:
         from db import sb
@@ -1124,8 +1146,9 @@ def orcamento_save(obra_sb_id: str, nome: str, versao: int,
     try:
         from db import sb
         from datetime import date
-        user = sb().auth.get_user()
-        user_id = user.user.id if user and user.user else None
+        user_id = (st.session_state.get("usuario") or {}).get("id")
+        if st.session_state.get("_dev_bypass"):
+            user_id = None  # usuário fake do modo dev não existe em auth.users
 
         eid = _empresa_id()
 
@@ -1197,8 +1220,8 @@ def orcamento_save(obra_sb_id: str, nome: str, versao: int,
         return None
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando orcamentos...")
-def orcamento_load(_cid: str = "") -> list[dict]:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando orcamentos...")
+def orcamento_load(_empresa_ignorado: str = "") -> list[dict]:
     """Carrega todos os orçamentos com itens."""
     try:
         from db import sb
@@ -1281,8 +1304,8 @@ def eap_save_from_orcamento(obra_sb_id: str, itens: list[dict]) -> bool:
     return True
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando EAP...")
-def eap_load(obra_sb_id: str, _cid: str = "") -> list[dict]:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando EAP...")
+def eap_load(obra_sb_id: str, _empresa_ignorado: str = "") -> list[dict]:
     """Carrega EAP de uma obra."""
     try:
         from db import sb
@@ -1381,8 +1404,8 @@ _ESTOQUE_MOV_COLS = ["ID", "SB_ID", "Data", "Tipo", "Insumo", "Quantidade",
                      "Obra", "Responsável", "NF/Doc", "insumo_id", "obra_id"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando insumos...")
-def insumos_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando insumos...")
+def insumos_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega catálogo de insumos do Supabase."""
     empty = pd.DataFrame(columns=["ID", "SB_ID", "Codigo", "Insumo", "Unidade", "Tipo", "Preco"])
     try:
@@ -1405,8 +1428,8 @@ def insumos_load(_empresa_id: str = "") -> pd.DataFrame:
         return empty
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando estoque...")
-def estoque_saldo_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando estoque...")
+def estoque_saldo_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega saldo de estoque com joins de insumos e obras."""
     empty = pd.DataFrame(columns=_ESTOQUE_COLS)
     try:
@@ -1434,8 +1457,8 @@ def estoque_saldo_load(_empresa_id: str = "") -> pd.DataFrame:
         return empty
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando movimentacoes...")
-def estoque_movimentos_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando movimentacoes...")
+def estoque_movimentos_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega movimentações de estoque."""
     empty = pd.DataFrame(columns=_MOV_COLS)
     try:
@@ -1476,8 +1499,8 @@ _FORNECEDOR_COLS = ["ID", "SB_ID", "CNPJ", "Razão Social", "Nome Fantasia",
                     "Email", "Telefone", "Endereço", "Categoria", "Ativo"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando fornecedores...")
-def fornecedores_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando fornecedores...")
+def fornecedores_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_FORNECEDOR_COLS)
     try:
         from db import fornecedores_listar
@@ -1540,8 +1563,8 @@ _COTACAO_COLS = ["ID", "SB_ID", "Data", "Fornecedor", "Obra", "Total (R$)",
                  "Validade", "Condição Pag.", "Prazo Entrega", "Vencedora"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando cotações...")
-def cotacoes_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando cotações...")
+def cotacoes_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_COTACAO_COLS)
     try:
         from db import cotacoes_listar
@@ -1647,7 +1670,7 @@ def cotacao_delete(sb_id: str):
         print("[sync.cotacao_delete] ERRO:\n", traceback.format_exc())
 
 
-@st.cache_data(ttl=60)
+@_cache_por_empresa(ttl=60)
 def cotacao_itens_load(cotacao_sb_id: str) -> list[dict]:
     try:
         from db import cotacao_itens_listar
@@ -1727,8 +1750,8 @@ def _parse_csv_extrato(content: str) -> list[dict]:
 # FÉRIAS
 # ─────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60, show_spinner="Carregando férias...")
-def ferias_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando férias...")
+def ferias_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     _F_COLS = ["ID", "SB_ID", "Funcionário", "Início", "Fim", "Dias", "Valor Bruto",
                "Valor Líquido", "Status", "Pagamento"]
     empty = pd.DataFrame(columns=_F_COLS)
@@ -1789,7 +1812,7 @@ def ferias_save(dados: dict, sb_id: str | None = None) -> str | None:
 # ADICIONAIS
 # ─────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60)
+@_cache_por_empresa(ttl=60)
 def adicionais_load(colaborador_sb_id: str | None = None) -> pd.DataFrame:
     _A_COLS = ["ID", "SB_ID", "Tipo", "Percentual", "Valor (R$)", "Ativo"]
     empty = pd.DataFrame(columns=_A_COLS)
@@ -1847,8 +1870,8 @@ def adicional_delete(sb_id: str):
 # RESCISÃO
 # ─────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60, show_spinner="Carregando rescisões...")
-def rescisoes_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando rescisões...")
+def rescisoes_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     _R_COLS = ["ID", "SB_ID", "Funcionário", "Data Rescisão", "Tipo", "Total Bruto",
                "Total Líquido", "Status", "Pagamento"]
     empty = pd.DataFrame(columns=_R_COLS)
@@ -1919,8 +1942,8 @@ _SUB_COLS = ["ID", "SB_ID", "Razão Social", "Nome Fantasia", "CNPJ",
              "Contato", "Telefone", "Especialidades", "CREA/CA", "Ativo"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando subempreiteiros...")
-def subempreiteiros_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando subempreiteiros...")
+def subempreiteiros_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_SUB_COLS)
     try:
         from db import subempreiteiros_listar

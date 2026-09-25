@@ -17,8 +17,16 @@ st.set_page_config(page_title="Prumo ERP", layout="wide", page_icon="🏗️",
 
 # ── Inicialização do estado ───────────────────────────────────────────────────
 
+_DEV_EMPRESA_ID = "00000000-0000-0000-0000-000000000001"  # MBR, só para "Pular login" local
+
+
 def _is_dev() -> bool:
     return os.path.exists(os.path.join(os.path.dirname(__file__), ".env"))
+
+
+def _is_plataforma_admin() -> bool:
+    """Dono da plataforma (tabela plataforma_admins). Não confundir com admin da empresa."""
+    return bool(st.session_state.get("plataforma_admin"))
 
 def _supabase_ok() -> bool:
     url = os.environ.get("SUPABASE_URL", "")
@@ -50,37 +58,6 @@ def _obra_uuid(obra_nome: str) -> str | None:
         rows = df[df["Nome"].str.contains(nome_clean, case=False, na=False)]
     return _sb_id(df, rows["ID"].iloc[0]) if len(rows) else None
 
-
-def _carregar_obras_service():
-    """Carrega obras via service_role (bypassa RLS). Retorna DataFrame ou None."""
-    try:
-        from db import sb_admin
-        admin = sb_admin()
-        if not admin: return None
-        r = admin.table("obras").select("*").is_("deleted_at", None).order("created_at").execute()
-        df = pd.DataFrame(r.data) if r.data else pd.DataFrame()
-        if df.empty: return None
-        rows = []
-        for i, row in enumerate(df.itertuples(index=False), start=1):
-            _id_raw = getattr(row, "id", None)
-            _sb_id  = str(_id_raw) if _id_raw else None
-            rows.append({
-                "ID": i, "SB_ID": _sb_id,
-                "Nome": getattr(row, "nome", ""), "Tipo": getattr(row, "tipo", ""),
-                "Cliente": getattr(row, "cliente", ""),
-                "CNPJ Cliente": getattr(row, "cnpj_cliente", ""),
-                "Endereço": getattr(row, "endereco", ""),
-                "Valor Contrato (R$)": float(getattr(row, "valor_contrato", 0) or 0),
-                "BDI (%)": round(float(getattr(row, "bdi", 0.25) or 0.25) * 100, 2),
-                "Início": "", "Término": "",
-                "% Físico": int(float(getattr(row, "pct_fisico", 0) or 0)),
-                "Status": getattr(row, "status", "Planejamento"),
-                "Responsável": getattr(row, "responsavel", ""),
-            })
-        return pd.DataFrame(rows)
-    except Exception as e:
-        print(f"[_carregar_obras_service] ERRO: {e}")
-        return None
 
 def _load_supabase_data(emp_id: str) -> bool:
     """Carrega todos os datasets do Supabase em série."""
@@ -119,12 +96,6 @@ def _init():
             ok = _load_supabase_data(emp_id)
         if ok:
             st.session_state._erp_init_done = True
-
-    # ── Se obras ainda está vazio, tenta fallback service_role ────────────────
-    if st.session_state.get("obras", pd.DataFrame()).empty:
-        df = _carregar_obras_service()
-        if df is not None:
-            st.session_state.obras = df
 
     # ── Fallback: tabelas que ainda não têm integração Supabase ───────────────
     if "obras" not in st.session_state:
@@ -486,63 +457,84 @@ def _auth_login():
                     "nome":  "Desenvolvedor",
                 }
                 st.session_state.usuario_role  = "admin"
-                st.session_state.empresa_id    = "00000000-0000-0000-0000-000000000001"
+                st.session_state.empresa_id    = _DEV_EMPRESA_ID
                 st.session_state.usuario_obras_ids = []
+                st.session_state.plataforma_admin = True
+                st.session_state._dev_bypass = True   # só local: sem JWT, usa service_role
                 st.rerun()
 
             if entrar:
                 if not email or not senha:
                     st.error("Preencha e-mail e senha.")
                     return
+                from db import new_anon_client, set_user_client
+                cli = new_anon_client()  # cliente exclusivo desta sessão
                 try:
-                    from db import sb
-                    res  = sb().auth.sign_in_with_password({"email": email, "password": senha})
-                    meta = res.user.user_metadata or {}
-                    st.session_state.usuario = {
-                        "id":    res.user.id,
-                        "email": res.user.email,
-                        "nome":  meta.get("full_name") or res.user.email,
-                    }
-                    role = None
+                    res = cli.auth.sign_in_with_password({"email": email, "password": senha})
+                except Exception as _auth_e:
+                    st.error("E-mail ou senha inválidos.")
+                    print(f"[auth] erro login: {_auth_e}")
+                    return
+
+                # Empresa e perfil vêm de empresa_membros (só service_role escreve lá)
+                try:
+                    mem = cli.table("empresa_membros").select("empresa_id, role, empresas(status)") \
+                             .eq("user_id", res.user.id).limit(1).execute().data
+                except Exception as _mem_e:
+                    print(f"[auth] erro vínculo: {_mem_e}")
+                    mem = []
+                if not mem:
+                    cli.auth.sign_out()
+                    st.error("🚫 **Seu usuário não está vinculado a nenhuma empresa.** "
+                             "Peça ao administrador da sua construtora para liberar o acesso.")
+                    return
+                # A policy de empresas só libera empresa ativa; sem status = pendente/bloqueada
+                _st_emp = (mem[0].get("empresas") or {}).get("status")
+                if not _st_emp:
                     try:
-                        from db import sb_admin as _sb_adm
-                        _adm = _sb_adm()
-                        if _adm:
-                            role_res = _adm.table("user_roles").select("role").eq("user_id", res.user.id).execute()
-                        else:
-                            role_res = sb().table("user_roles").select("role").eq("user_id", res.user.id).execute()
-                        role = role_res.data[0]["role"] if (role_res and role_res.data) else None
+                        from db import sb_admin
+                        _st_emp = sb_admin().table("empresas").select("status") \
+                            .eq("id", mem[0]["empresa_id"]).execute().data[0]["status"]
                     except Exception:
-                        role = None
-                    if not role:
-                        role = meta.get("role") or "admin"
-                    st.session_state.usuario_role  = role
-                    st.session_state.empresa_id    = meta.get("empresa_id") or "00000000-0000-0000-0000-000000000001"
-                    try:
-                        _st_res = sb().table("empresas").select("status").eq("id", st.session_state.empresa_id).execute()
-                        _st_emp = _st_res.data[0]["status"] if _st_res.data else "ativo"
-                    except Exception:
-                        _st_emp = "ativo"
-                    if _st_emp == "pendente":
-                        st.error("⏳ **Sua conta está aguardando aprovação.** Entraremos em contato em breve.")
-                        st.session_state.clear()
-                        st.stop()
+                        _st_emp = "pendente"
+                if _st_emp != "ativo":
+                    cli.auth.sign_out()
                     if _st_emp == "bloqueado":
                         st.error("🚫 **Sua conta foi bloqueada.** Entre em contato com o suporte.")
-                        st.session_state.clear()
-                        st.stop()
-                    if role in ("engenheiro", "adm_obra", "suprimentos", "qualidade"):
-                        try:
-                            obras_res = sb().table("usuario_obras").select("obra_id").eq("user_id", res.user.id).execute()
-                            st.session_state.usuario_obras_ids = [r["obra_id"] for r in (obras_res.data or [])]
-                        except Exception:
-                            st.session_state.usuario_obras_ids = []
                     else:
+                        st.error("⏳ **Sua conta está aguardando aprovação.** Entraremos em contato em breve.")
+                    return
+
+                meta = res.user.user_metadata or {}
+                st.session_state.usuario = {
+                    "id":    res.user.id,
+                    "email": res.user.email,
+                    "nome":  meta.get("full_name") or res.user.email,
+                }
+                st.session_state.empresa_id = mem[0]["empresa_id"]
+                role = mem[0].get("role") or "visualizador"
+                try:
+                    roles = cli.table("user_roles").select("role").eq("user_id", res.user.id).execute().data
+                    if roles and not any(r["role"] == role for r in roles):
+                        role = roles[0]["role"]
+                except Exception:
+                    pass
+                st.session_state.usuario_role = role
+                try:
+                    st.session_state.plataforma_admin = bool(
+                        cli.table("plataforma_admins").select("user_id").eq("user_id", res.user.id).execute().data)
+                except Exception:
+                    st.session_state.plataforma_admin = False
+                if role in ("engenheiro", "adm_obra", "suprimentos", "qualidade"):
+                    try:
+                        obras_res = cli.table("usuario_obras").select("obra_id").eq("user_id", res.user.id).execute()
+                        st.session_state.usuario_obras_ids = [r["obra_id"] for r in (obras_res.data or [])]
+                    except Exception:
                         st.session_state.usuario_obras_ids = []
-                    st.rerun()
-                except Exception as _auth_e:
-                    st.error(f"Login inválido: {_auth_e}")
-                    print(f"[auth] erro login: {_auth_e}")
+                else:
+                    st.session_state.usuario_obras_ids = []
+                set_user_client(cli)
+                st.rerun()
 
         else:  # ── Criar conta ──────────────────────────────────────────────
             st.markdown("""
@@ -573,29 +565,26 @@ def _auth_login():
                     st.error("Senha deve ter no mínimo 6 caracteres.")
                 else:
                     try:
-                        from db import sb
-                        res_cad = sb().auth.sign_up({
+                        from db import new_anon_client, sb_admin
+                        res_cad = new_anon_client().auth.sign_up({
                             "email": email_cad, "password": senha_cad,
-                            "options": {"data": {"full_name": nome_usuario, "role": "admin"}},
+                            "options": {"data": {"full_name": nome_usuario}},
                         })
                         if not res_cad.user:
                             st.error("Não foi possível criar o usuário. Tente outro e-mail.")
                         else:
                             user_id = res_cad.user.id
-                            try:
-                                rpc_res    = sb().rpc("registrar_empresa", {"p_nome_empresa": nome_empresa, "p_user_id": user_id}).execute()
-                                empresa_id = rpc_res.data
-                            except Exception as _e_rpc:
-                                print(f"[cadastro] RPC: {_e_rpc}")
-                                emp_res    = sb().table("empresas").insert({"nome": nome_empresa, "cidade": cidade_cad, "estado": estado_cad}).execute()
-                                empresa_id = (emp_res.data[0] if emp_res.data else {}).get("id")
+                            # Empresa (pendente) + vínculo admin: só via service_role
+                            _adm = sb_admin()
+                            rpc_res    = _adm.rpc("registrar_empresa", {"p_nome_empresa": nome_empresa, "p_user_id": user_id}).execute()
+                            empresa_id = rpc_res.data
                             if empresa_id:
                                 try:
-                                    sb().table("empresas").update({"status": "pendente"}).eq("id", empresa_id).execute()
+                                    _adm.table("empresas").update({"cidade": cidade_cad, "estado": estado_cad}).eq("id", empresa_id).execute()
                                 except Exception:
                                     pass
                                 try:
-                                    sb().rpc("seed_demo_data", {"p_empresa_id": str(empresa_id)}).execute()
+                                    _adm.rpc("seed_demo_data", {"p_empresa_id": str(empresa_id)}).execute()
                                 except Exception as _e_seed:
                                     print(f"[cadastro] seed_demo_data: {_e_seed}")
                             st.success("""
@@ -696,21 +685,28 @@ def pagina_admin():
     from db import sb, sb_admin
     _init()
     st.title("⚙️ Administração")
+    _minha_empresa = st.session_state.get("empresa_id")
 
-    tabs = st.tabs(["👥 Usuários", "🏢 Empresas", "💳 Assinatura"])
+    # Empresas (aprovar/bloquear) é da plataforma, não do admin da construtora
+    _abas = ["👥 Usuários", "💳 Assinatura"] + (["🏢 Empresas"] if _is_plataforma_admin() else [])
+    tabs = st.tabs(_abas)
 
     # ===== TAB 1: USUÁRIOS =====================================================
     with tabs[0]:
-        # ── Lista de usuários ──────────────────────────────────────────────────
+        # ── Lista de usuários (RLS: só membros da própria empresa) ─────────────
         try:
-            profiles = sb().table("profiles").select("id, nome, email, created_at").order("created_at").execute()
-            roles_raw = sb().table("user_roles").select("user_id, role").execute()
+            membros = sb().table("empresa_membros").select("user_id").eq("empresa_id", _minha_empresa).execute()
+            _ids_membros = [m["user_id"] for m in (membros.data or [])]
+            profiles = sb().table("profiles").select("id, nome, email, created_at") \
+                           .in_("id", _ids_membros or ["00000000-0000-0000-0000-000000000000"]) \
+                           .order("created_at").execute()
+            roles_raw = sb().table("user_roles").select("user_id, role").eq("empresa_id", _minha_empresa).execute()
         except Exception as e:
             st.error(f"Erro ao carregar dados: {e}")
             return
 
         df_profiles = pd.DataFrame(profiles.data or [])
-        df_roles    = pd.DataFrame(roles_raw.data or [])
+        df_roles    = pd.DataFrame(roles_raw.data or [], columns=["user_id", "role"])
 
         # Monta dicionário user_id → [roles]
         _roles_map = df_roles.groupby("user_id")["role"].apply(list).to_dict()
@@ -746,14 +742,16 @@ def pagina_admin():
                                     "user_metadata": {"full_name": inv_nome},
                                 })
                                 uid = resp.user.id
-                                # Atribui role (usa service_role para bypassar RLS)
+                                # Vincula à empresa de quem convidou + perfil (service_role)
                                 try:
+                                    admin.table("empresa_membros").insert({
+                                        "user_id": uid, "empresa_id": _minha_empresa, "role": inv_role,
+                                    }).execute()
                                     admin.table("user_roles").insert({
-                                        "user_id": uid,
-                                        "role": inv_role,
+                                        "user_id": uid, "role": inv_role, "empresa_id": _minha_empresa,
                                     }).execute()
                                 except Exception as role_e:
-                                    st.warning(f"Usuário criado, mas falha ao atribuir role: {role_e}")
+                                    st.warning(f"Usuário criado, mas falha ao vincular à empresa: {role_e}")
                                 # Vincula obras (usa service_role)
                                 if inv_obras:
                                     try:
@@ -777,13 +775,8 @@ def pagina_admin():
                     key="diag_user")
                 if st.button("Ver roles no banco", key="diag_roles"):
                     try:
-                        _adm = sb_admin()
-                        if _adm:
-                            dr = _adm.table("user_roles").select("*").eq("user_id", diag_user).execute()
-                            st.write("Registros em `user_roles`:", dr.data)
-                        else:
-                            dr = sb().table("user_roles").select("*").eq("user_id", diag_user).execute()
-                            st.write("Registros em `user_roles`:", dr.data)
+                        dr = sb().table("user_roles").select("*").eq("user_id", diag_user).execute()
+                        st.write("Registros em `user_roles`:", dr.data)
                     except Exception as _de:
                         st.error(f"Erro: {_de}")
 
@@ -832,71 +825,34 @@ def pagina_admin():
                                 else:
                                     removidas = [r for r in roles if r not in novas_roles]
                                     adicionadas = [r for r in novas_roles if r not in roles]
+                                    # uid vem da lista filtrada por RLS: é membro desta empresa
                                     try:
                                         for r in removidas:
-                                            _adm.table("user_roles").delete().eq("user_id", uid).eq("role", r).execute()
+                                            _adm.table("user_roles").delete().eq("user_id", uid).eq("role", r) \
+                                                .eq("empresa_id", _minha_empresa).execute()
                                         for r in adicionadas:
-                                            _adm.table("user_roles").insert({"user_id": uid, "role": r}).execute()
+                                            _adm.table("user_roles").insert({"user_id": uid, "role": r,
+                                                                             "empresa_id": _minha_empresa}).execute()
+                                        if novas_roles:
+                                            _adm.table("empresa_membros").update({"role": novas_roles[0]}) \
+                                                .eq("user_id", uid).eq("empresa_id", _minha_empresa).execute()
                                     except Exception as e:
                                         st.error(f"Erro ao atualizar roles: {e}")
-                                # Atualiza obras
-                                try:
-                                    sb().table("usuario_obras").delete().eq("user_id", uid).execute()
-                                    if novas_obras:
-                                        sb().table("usuario_obras").insert([
-                                            {"user_id": uid, "obra_id": oid} for oid in novas_obras
-                                        ]).execute()
-                                except Exception as e:
-                                    st.error(f"Erro ao atualizar obras: {e}")
+                                    # Obras: só as da própria empresa (lista vem do session_state já filtrado)
+                                    _obras_empresa = set(st.session_state.obras["SB_ID"].dropna().astype(str))
+                                    try:
+                                        _adm.table("usuario_obras").delete().eq("user_id", uid) \
+                                            .in_("obra_id", list(_obras_empresa) or ["00000000-0000-0000-0000-000000000000"]).execute()
+                                        _ins = [{"user_id": uid, "obra_id": oid} for oid in novas_obras if str(oid) in _obras_empresa]
+                                        if _ins:
+                                            _adm.table("usuario_obras").insert(_ins).execute()
+                                    except Exception as e:
+                                        st.error(f"Erro ao atualizar obras: {e}")
                                 st.success("Permissões atualizadas!")
                                 st.rerun()
 
-    # ===== TAB 2: EMPRESAS =====================================================
+    # ===== TAB 2: ASSINATURA ==================================================
     with tabs[1]:
-        try:
-            empresas_data = sb().table("empresas").select("id, nome, status, created_at, aprovado_em, bloqueado_em").order("created_at").execute()
-        except Exception as e:
-            st.error(f"Erro ao carregar empresas: {e}")
-            empresas_data = type("obj", (), {"data": []})()
-
-        df_emp = pd.DataFrame(empresas_data.data or [])
-        for _, row in df_emp.iterrows():
-            eid    = row["id"]
-            sts    = (row.get("status") or "pendente").lower()
-            cor    = {"ativo": "#059669", "pendente": "#D97706", "bloqueado": "#DC2626"}.get(sts, "#6B7280")
-            sts_label = {"ativo": "✅ Ativo", "pendente": "⏳ Pendente", "bloqueado": "🚫 Bloqueado"}.get(sts, sts)
-            with st.container(border=True):
-                cols = st.columns([3, 1, 1])
-                with cols[0]:
-                    st.markdown(f"**{row.get('nome', '—')}**")
-                    st.caption(f"Cadastro: {row.get('created_at', '—')}")
-                with cols[1]:
-                    st.markdown(f"<span style='color:{cor};font-weight:700;'>{sts_label}</span>",
-                                unsafe_allow_html=True)
-                with cols[2]:
-                    _agora = datetime.now(timezone.utc).isoformat()
-                    if sts == "pendente":
-                        if st.button("✅ Aprovar", key=f"aprovar_{eid}", type="primary", width='stretch'):
-                            sb().table("empresas").update({"status": "ativo", "aprovado_em": _agora}).eq("id", eid).execute()
-                            st.success(f"Empresa {row.get('nome')} aprovada!")
-                            st.rerun()
-                        if st.button("❌ Bloquear", key=f"bloquear_{eid}", width='stretch'):
-                            sb().table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
-                            st.error(f"Empresa {row.get('nome')} bloqueada!")
-                            st.rerun()
-                    elif sts == "bloqueado":
-                        if st.button("🔄 Reativar", key=f"reativar_{eid}", type="primary", width='stretch'):
-                            sb().table("empresas").update({"status": "ativo", "aprovado_em": _agora}).eq("id", eid).execute()
-                            st.success(f"Empresa {row.get('nome')} reativada!")
-                            st.rerun()
-                    elif sts == "ativo":
-                        if st.button("🔒 Bloquear", key=f"bloq_{eid}", width='stretch'):
-                            sb().table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
-                            st.error(f"Empresa {row.get('nome')} bloqueada!")
-                            st.rerun()
-
-    # ===== TAB 3: ASSINATURA ==================================================
-    with tabs[2]:
         _init()
         info = _plano_info()
         planos = []
@@ -923,21 +879,71 @@ def pagina_admin():
                     <p style='font-size:12px;color:#6B7280;margin:12px 0;'>{com_atual}</p>
                 </div>
                 """, unsafe_allow_html=True)
-                if not ativo:
+                if not ativo and _is_plataforma_admin():
                     if st.button(f"Alterar para {p['nome']}", key=f"plan_{p['slug']}", width='stretch'):
                         try:
-                            sb().table("empresas").update({"plan_id": p["id"]}).eq("id", st.session_state.empresa_id).execute()
+                            sb_admin().table("empresas").update({"plan_id": p["id"]}).eq("id", st.session_state.empresa_id).execute()
                             st.success(f"Plano alterado para {p['nome']}!")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
+        if not _is_plataforma_admin():
+            st.caption("Para mudar de plano, fale com o suporte do Prumo.")
+
+
+    # ===== TAB 3: EMPRESAS (só dono da plataforma) ============================
+    if _is_plataforma_admin():
+        with tabs[2]:
+            _adm_emp = sb_admin()  # aprovação atua sobre todas as empresas
+            try:
+                empresas_data = _adm_emp.table("empresas").select("id, nome, status, created_at, aprovado_em, bloqueado_em").order("created_at").execute()
+            except Exception as e:
+                st.error(f"Erro ao carregar empresas: {e}")
+                empresas_data = type("obj", (), {"data": []})()
+
+            df_emp = pd.DataFrame(empresas_data.data or [])
+            for _, row in df_emp.iterrows():
+                eid    = row["id"]
+                sts    = (row.get("status") or "pendente").lower()
+                cor    = {"ativo": "#059669", "pendente": "#D97706", "bloqueado": "#DC2626"}.get(sts, "#6B7280")
+                sts_label = {"ativo": "✅ Ativo", "pendente": "⏳ Pendente", "bloqueado": "🚫 Bloqueado"}.get(sts, sts)
+                with st.container(border=True):
+                    cols = st.columns([3, 1, 1])
+                    with cols[0]:
+                        st.markdown(f"**{row.get('nome', '—')}**")
+                        st.caption(f"Cadastro: {row.get('created_at', '—')}")
+                    with cols[1]:
+                        st.markdown(f"<span style='color:{cor};font-weight:700;'>{sts_label}</span>",
+                                    unsafe_allow_html=True)
+                    with cols[2]:
+                        _agora = datetime.now(timezone.utc).isoformat()
+                        if sts == "pendente":
+                            if st.button("✅ Aprovar", key=f"aprovar_{eid}", type="primary", width='stretch'):
+                                _adm_emp.table("empresas").update({"status": "ativo", "aprovado_em": _agora}).eq("id", eid).execute()
+                                st.success(f"Empresa {row.get('nome')} aprovada!")
+                                st.rerun()
+                            if st.button("❌ Bloquear", key=f"bloquear_{eid}", width='stretch'):
+                                _adm_emp.table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
+                                st.error(f"Empresa {row.get('nome')} bloqueada!")
+                                st.rerun()
+                        elif sts == "bloqueado":
+                            if st.button("🔄 Reativar", key=f"reativar_{eid}", type="primary", width='stretch'):
+                                _adm_emp.table("empresas").update({"status": "ativo", "aprovado_em": _agora}).eq("id", eid).execute()
+                                st.success(f"Empresa {row.get('nome')} reativada!")
+                                st.rerun()
+                        elif sts == "ativo":
+                            if st.button("🔒 Bloquear", key=f"bloq_{eid}", width='stretch'):
+                                _adm_emp.table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
+                                st.error(f"Empresa {row.get('nome')} bloqueada!")
+                                st.rerun()
+
 
 
 # ── Developer Panel ──────────────────────────────────────────────────────────
 
 def _dev_log(level, category, action, details=None):
     try:
-        from db import sb
+        from db import sb_admin as sb  # painel da plataforma: todas as empresas
         sb().table("system_logs").insert({
             "level": level, "category": category, "action": action,
             "user_id": st.session_state.get("usuario", {}).get("id"),
@@ -949,7 +955,7 @@ def _dev_log(level, category, action, details=None):
 
 def pagina_dev_panel():
     st.title("🛠️ Painel do Desenvolvedor")
-    from db import sb
+    from db import sb_admin as sb  # painel da plataforma: todas as empresas
 
     tab_emp, tab_users, tab_grants, tab_logs, tab_config, tab_sql, tab_sys = st.tabs([
         "🏢 Empresas", "👥 Usuários", "🤝 Parcerias", "📋 Logs",
@@ -2157,17 +2163,8 @@ def pagina_obras():
                 dados_nova = {"Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat,"Responsável":resp}
                 uuid_nova = sync.obra_save(dados_nova)
                 if not uuid_nova:
-                    try:
-                        from db import sb_admin
-                        admin = sb_admin()
-                        if admin:
-                            from sync import _empresa_id
-                            payload = dict(dados_nova)
-                            payload["empresa_id"] = _empresa_id()
-                            r2 = admin.table("obras").insert(payload).execute()
-                            uuid_nova = r2.data[0]["id"] if r2.data else None
-                    except Exception:
-                        pass
+                    st.error("Não foi possível salvar a obra no banco. Tente novamente.")
+                    st.stop()
                 st.session_state.obras = pd.concat([st.session_state.obras,pd.DataFrame([{"ID":_next_id(st.session_state.obras),"SB_ID":uuid_nova or "","Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat,"Responsável":resp}])],ignore_index=True)
                 _notify(f"✅ Obra **{nome}** cadastrada com sucesso!"); st.rerun()
 
@@ -7417,7 +7414,7 @@ def app():
 
     # ── Pós-login: admin escolhe App ou Dev; demais vão direto pro App ────
     if "modo" not in st.session_state:
-        if _role() == "admin":
+        if _is_plataforma_admin():
             _pos_login_choice()
             st.stop()
         st.session_state.modo = "app"
@@ -7493,7 +7490,7 @@ def app():
             st.session_state.pagina_atual = pag
             st.rerun()
     st.sidebar.markdown("---")
-    if _role() == "admin" and st.session_state.get("modo") == "dev":
+    if _is_plataforma_admin() and st.session_state.get("modo") == "dev":
         tipo_dev = "primary" if st.session_state.pagina_atual == "Desenvolvedor" else "secondary"
         if st.sidebar.button("🛠️ Desenvolvedor", width='stretch', type=tipo_dev):
             st.session_state.pagina_atual = "Desenvolvedor"
@@ -7507,18 +7504,24 @@ def app():
     st.sidebar.caption(f"📅 Hoje: {date.today().strftime('%d/%m/%Y')}")
     if st.sidebar.button("🔄 Atualizar dados", key="btn_refresh", width='stretch'):
         # Preserva autenticação mas força reload dos dados
-        _auth_keys = {k: st.session_state[k] for k in ["usuario","usuario_role","usuario_obras_ids","empresa_id"] if k in st.session_state}
+        from db import _SESSION_KEY
+        _auth_keys = {k: st.session_state[k] for k in
+                      ["usuario", "usuario_role", "usuario_obras_ids", "empresa_id", "modo",
+                       "plataforma_admin", "_dev_bypass", _SESSION_KEY]
+                      if k in st.session_state}
         st.session_state.clear()
         st.session_state.update(_auth_keys)
+        st.cache_data.clear()
         st.rerun()
     if st.sidebar.button("🚪 Sair", key="btn_logout", width='stretch'):
-        for k in ["usuario", "usuario_role", "usuario_obras_ids", "_erp_init_done"]:
-            st.session_state.pop(k, None)
         try:
-            from db import sb
-            sb().auth.sign_out()
+            from db import _SESSION_KEY
+            _cli = st.session_state.get(_SESSION_KEY)
+            if _cli is not None:
+                _cli.auth.sign_out()
         except Exception:
             pass
+        st.session_state.clear()  # nada da sessão anterior sobrevive ao logout
         st.rerun()
 
     p = st.session_state.pagina_atual
@@ -7537,7 +7540,7 @@ def app():
         elif p == "Orçamento":          pagina_orcamento()
         elif p == "Planejamento (EAP)": pagina_eap()
         elif p == "Administração":      pagina_admin()
-        elif p == "Desenvolvedor":       pagina_dev_panel()
+        elif p == "Desenvolvedor" and _is_plataforma_admin(): pagina_dev_panel()
     except st.runtime.scriptrunner.RerunException:
         raise  # deixa st.rerun() funcionar normalmente
     except Exception as _page_err:
