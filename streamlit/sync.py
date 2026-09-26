@@ -4,21 +4,43 @@ e o Supabase (tabelas snake_case, UUIDs, datas ISO).
 """
 from __future__ import annotations
 
+import functools
 import traceback
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-_MBR_EMPRESA_ID = "00000000-0000-0000-0000-000000000001"
 
-
-def _empresa_id() -> str:
-    """Obtém empresa_id da sessão Streamlit ou retorna o padrão MBR."""
+def _empresa_id() -> str | None:
+    """empresa_id da sessão logada. Sem sessão, None (o banco preenche pelo JWT)."""
     try:
-        import streamlit as _st
-        return _st.session_state.get("empresa_id") or _MBR_EMPRESA_ID
+        return st.session_state.get("empresa_id") or None
     except Exception:
-        return _MBR_EMPRESA_ID
+        return None
+
+
+def _cache_por_empresa(**cache_kwargs):
+    """st.cache_data com a empresa logada sempre na chave do cache.
+
+    Sem isso, o resultado carregado por uma empresa seria servido a outra
+    (parâmetros iniciados com "_" não entram na chave do st.cache_data).
+    """
+    def deco(fn):
+        def _cached(empresa_chave, *args, **kwargs):
+            return fn(*args, **kwargs)
+        # O st.cache_data identifica a função por módulo + qualname + código-fonte;
+        # sem um nome único, todas as funções decoradas dividiriam o mesmo cache.
+        _cached.__qualname__ = f"{fn.__qualname__}__por_empresa"
+        _cached.__name__ = _cached.__qualname__
+        _cached = st.cache_data(**cache_kwargs)(_cached)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            return _cached(_empresa_id() or "", *args, **kwargs)
+
+        wrapper.clear = _cached.clear
+        return wrapper
+    return deco
 
 
 def _iso_to_br(val) -> str:
@@ -59,8 +81,8 @@ _OBRAS_COLS = ["ID","SB_ID","Nome","Tipo","Cliente","CNPJ Cliente",
                "Término","% Físico","Status","Responsável"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando obras...")
-def obras_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando obras...")
+def obras_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega obras do Supabase → formato app."""
     empty = pd.DataFrame(columns=_OBRAS_COLS)
     try:
@@ -148,8 +170,8 @@ _STATUS_APP_PAGAR   = {"Previsto": "A Pagar",  "Pago": "Pago",     "Cancelado": 
 _STATUS_APP_RECEBER = {"Previsto": "A Receber", "Pago": "Recebido", "Cancelado": "Cancelado", "Aprovado": "A Receber"}
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando lancamentos...")
-def lancamentos_load(tipo: str, _empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando lancamentos...")
+def lancamentos_load(tipo: str, _empresa_ignorado: str = "") -> pd.DataFrame:
     """tipo: 'PAGAR' | 'RECEBER'. Retorna DataFrame vazio se falhar."""
     empty = pd.DataFrame(columns=_PAGAR_COLS if tipo == "PAGAR" else _RECEBER_COLS)
     try:
@@ -205,7 +227,7 @@ def lancamento_save(dados: dict, tipo: str,
             "descricao":       dados.get("Descrição", ""),
             "valor":           float(dados.get("Valor (R$)", 0) or 0),
             "categoria":       dados.get("Categoria") or ("Materiais" if tipo == "PAGAR" else None),
-            "data_emissao":    datetime.now().strftime("%Y-%m-%d"),
+            "data_emissao":    _br_to_iso(dados.get("Emissão")) or datetime.now().strftime("%Y-%m-%d"),
             "data_vencimento": _br_to_iso(dados.get("Vencimento")),
             "documento":       dados.get("NF") or None,
             "forma_pagamento": dados.get("Forma Pag.") or None,
@@ -213,6 +235,10 @@ def lancamento_save(dados: dict, tipo: str,
             "eap_item_id":     dados.get("eap_item_id") or None,
             "tipo_custo":      dados.get("tipo_custo") or None,
         }
+        # Opcionais: só vão no payload quando informados, para não apagar em edições
+        for chave_app, coluna in (("fornecedor_id", "fornecedor_id"), ("origem", "origem")):
+            if dados.get(chave_app):
+                payload[coluna] = dados[chave_app]
         res = lancamento_atualizar(sb_id, payload) if sb_id else lancamento_criar(payload)
         return (res or {}).get("id")
     except Exception:
@@ -245,8 +271,8 @@ _FUNC_COLS = ["ID","SB_ID","Nome","Cargo","Tipo Contrato","Obra",
               "Salário (R$)","Admissão","Situação"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando colaboradores...")
-def colaboradores_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando colaboradores...")
+def colaboradores_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_FUNC_COLS)
     try:
         from db import colaboradores_listar, alocacao_ativa
@@ -356,7 +382,7 @@ def _obra_uuid_por_nome(nome: str) -> str | None:
         return None
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando histórico...")
+@_cache_por_empresa(ttl=60, show_spinner="Carregando histórico...")
 def alocacoes_load(colaborador_sb_id: str) -> list[dict]:
     """Carrega histórico de alocações de um colaborador."""
     try:
@@ -427,8 +453,8 @@ _NC_COLS = ["ID","SB_ID","Data Abertura","Obra","Descrição","Gravidade",
             "Responsável","Status","Prazo","Ação Corretiva"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando NCs...")
-def ncs_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando NCs...")
+def ncs_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_NC_COLS)
     try:
         from db import ncs_listar
@@ -487,8 +513,8 @@ def nc_save(dados: dict, obra_sb_id: str | None = None,
 _INSPECOES_COLS = ["ID","SB_ID","Data","Obra","Item Inspecionado","Responsável","Resultado","Observação"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando inspeções...")
-def inspecoes_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando inspeções...")
+def inspecoes_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_INSPECOES_COLS)
     try:
         from db import inspecoes_listar
@@ -543,8 +569,8 @@ def inspecao_save(dados: dict, obra_sb_id: str | None = None,
 _MED_COLS = ["ID","SB_ID","Data","Obra","Período","% Medido","Valor Medido (R$)","Observação"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando medicoes...")
-def medicoes_load(_cid: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando medicoes...")
+def medicoes_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega todas as medições de todas as obras."""
     empty = pd.DataFrame(columns=_MED_COLS)
     try:
@@ -717,8 +743,8 @@ def _colaborador_uuid_por_nome(nome: str) -> str | None:
         return None
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando ponto...")
-def faltas_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando ponto...")
+def faltas_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega registros de ponto onde falta=True."""
     empty = pd.DataFrame(columns=_PONTO_COLS)
     try:
@@ -783,8 +809,8 @@ _PONTO_REGISTRO_COLS = ["ID","SB_ID","Data","Funcionário","Obra","Entrada","Sa�
                          "Retorno Almoço","Saída","Horas Normais","Horas Extras","Observação"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando registros de ponto...")
-def ponto_registro_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando registros de ponto...")
+def ponto_registro_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega registros de ponto com horário batido (falta=False)."""
     empty = pd.DataFrame(columns=_PONTO_REGISTRO_COLS)
     try:
@@ -856,12 +882,16 @@ def ponto_registro_save(dados: dict, obra_sb_id: str | None = None) -> str | Non
 def _get_or_create_insumo(descricao: str, unidade: str = "un") -> str | None:
     """Retorna UUID do insumo pelo nome, criando se não existir."""
     try:
+        import uuid as _uuid
         from db import sb as _sb
         desc = descricao.strip()
-        res = _sb().table("insumos").select("id").ilike("descricao", desc).limit(1).execute()
+        # ilike sem curingas: "%" e "_" na descrição não podem casar com outro insumo
+        padrao = desc.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+        res = _sb().table("insumos").select("id").ilike("descricao", padrao).limit(1).execute()
         if res.data:
             return res.data[0]["id"]
-        codigo = desc[:6].upper().replace(" ", "_")
+        # codigo é UNIQUE no banco inteiro (todas as empresas): prefixo legível + sufixo aleatório
+        codigo = f"{desc[:6].upper().replace(' ', '_')}-{_uuid.uuid4().hex[:6]}"
         novo = _sb().table("insumos").insert({
             "codigo":     codigo,
             "descricao":  desc,
@@ -892,13 +922,19 @@ def estoque_movimento_save(dados: dict, obra_sb_id: str | None = None) -> bool:
         if not insumo_id:
             return False
 
+        if not obra_sb_id:  # obra_id é NOT NULL na tabela
+            return False
+
+        # A tabela não tem "observacao"; o documento/NF vai em "origem"
         payload = {
             "insumo_id":  insumo_id,
             "obra_id":    obra_sb_id,
             "quantidade": qtd,
-            "observacao": obs,
+            "origem":     obs,
             "empresa_id": _empresa_id(),
         }
+        if dados.get("Custo Unit."):
+            payload["custo_unit"] = float(dados["Custo Unit."])
         if tipo == "Entrada":
             estoque_entrada(payload)
         else:
@@ -929,8 +965,8 @@ def _parse_fotos(v):
     return []
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando RDO...")
-def rdo_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando RDO...")
+def rdo_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     try:
         from db import sb
         res = sb().table("rdo").select("*, obras(nome)").order("data", desc=True).execute()
@@ -993,24 +1029,55 @@ def rdo_save(dados: dict, sb_id: str | None = None) -> str | None:
         return None
 
 
+_BUCKET_FOTOS = "rdo-fotos"
+
+
 def upload_rdo_foto(rdo_id: str, arquivo, filename: str) -> str | None:
-    """Faz upload de uma foto para o bucket rdo-fotos e retorna a URL pública."""
+    """Envia a foto para o bucket privado rdo-fotos e retorna o caminho do arquivo.
+
+    O caminho começa com o empresa_id: a policy do Storage só deixa cada
+    empresa ler/gravar na própria pasta.
+    """
     import uuid as _uuid
     try:
         from db import sb
+        eid = _empresa_id()
+        if not eid:
+            return None
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
-        path = f"rdo/{rdo_id}/{_uuid.uuid4().hex}.{ext}"
+        path = f"{eid}/rdo/{rdo_id}/{_uuid.uuid4().hex}.{ext}"
         content = arquivo.read() if hasattr(arquivo, "read") else arquivo
         content_type = getattr(arquivo, "type", None) or f"image/{ext}"
-        sb().storage.from_("rdo-fotos").upload(
+        sb().storage.from_(_BUCKET_FOTOS).upload(
             path, content,
             file_options={"content-type": content_type, "upsert": "false"}
         )
-        url = sb().storage.from_("rdo-fotos").get_public_url(path)
-        return url
+        return path
     except Exception:
         print("[sync.upload_rdo_foto] ERRO:\n", traceback.format_exc())
         return None
+
+
+def resolver_fotos(fotos: list) -> list[dict]:
+    """Converte a lista salva no RDO ({nome, path}) em {nome, url} com links
+    temporários (1h). Itens antigos com "url" direta são mantidos como estão."""
+    saida = []
+    for f in fotos or []:
+        if not isinstance(f, dict):
+            saida.append({"nome": "Foto", "url": str(f)})
+            continue
+        if f.get("path"):
+            try:
+                from db import sb
+                r = sb().storage.from_(_BUCKET_FOTOS).create_signed_url(f["path"], 3600)
+                url = r.get("signedURL") or r.get("signedUrl") or ""
+            except Exception:
+                print("[sync.resolver_fotos] ERRO:\n", traceback.format_exc())
+                url = ""
+            saida.append({"nome": f.get("nome", "Foto"), "url": url})
+        else:
+            saida.append(f)
+    return saida
 
 
 def rdo_update_fotos(rdo_id: str, fotos: list) -> bool:
@@ -1033,8 +1100,8 @@ _REQ_COLS = ["ID", "SB_ID", "Data", "Obra", "Insumo", "Quantidade",
              "Aprovado Por", "Data Aprovação"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando requisicoes...")
-def requisicoes_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando requisicoes...")
+def requisicoes_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_REQ_COLS)
     try:
         from db import sb
@@ -1118,8 +1185,9 @@ def orcamento_save(obra_sb_id: str, nome: str, versao: int,
     try:
         from db import sb
         from datetime import date
-        user = sb().auth.get_user()
-        user_id = user.user.id if user and user.user else None
+        user_id = (st.session_state.get("usuario") or {}).get("id")
+        if st.session_state.get("_dev_bypass"):
+            user_id = None  # usuário fake do modo dev não existe em auth.users
 
         eid = _empresa_id()
 
@@ -1191,8 +1259,8 @@ def orcamento_save(obra_sb_id: str, nome: str, versao: int,
         return None
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando orcamentos...")
-def orcamento_load(_cid: str = "") -> list[dict]:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando orcamentos...")
+def orcamento_load(_empresa_ignorado: str = "") -> list[dict]:
     """Carrega todos os orçamentos com itens."""
     try:
         from db import sb
@@ -1275,8 +1343,8 @@ def eap_save_from_orcamento(obra_sb_id: str, itens: list[dict]) -> bool:
     return True
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando EAP...")
-def eap_load(obra_sb_id: str, _cid: str = "") -> list[dict]:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando EAP...")
+def eap_load(obra_sb_id: str, _empresa_ignorado: str = "") -> list[dict]:
     """Carrega EAP de uma obra."""
     try:
         from db import sb
@@ -1375,8 +1443,8 @@ _ESTOQUE_MOV_COLS = ["ID", "SB_ID", "Data", "Tipo", "Insumo", "Quantidade",
                      "Obra", "Responsável", "NF/Doc", "insumo_id", "obra_id"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando insumos...")
-def insumos_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando insumos...")
+def insumos_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega catálogo de insumos do Supabase."""
     empty = pd.DataFrame(columns=["ID", "SB_ID", "Codigo", "Insumo", "Unidade", "Tipo", "Preco"])
     try:
@@ -1399,8 +1467,8 @@ def insumos_load(_empresa_id: str = "") -> pd.DataFrame:
         return empty
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando estoque...")
-def estoque_saldo_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando estoque...")
+def estoque_saldo_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega saldo de estoque com joins de insumos e obras."""
     empty = pd.DataFrame(columns=_ESTOQUE_COLS)
     try:
@@ -1428,8 +1496,8 @@ def estoque_saldo_load(_empresa_id: str = "") -> pd.DataFrame:
         return empty
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando movimentacoes...")
-def estoque_movimentos_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando movimentacoes...")
+def estoque_movimentos_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     """Carrega movimentações de estoque."""
     empty = pd.DataFrame(columns=_MOV_COLS)
     try:
@@ -1470,8 +1538,8 @@ _FORNECEDOR_COLS = ["ID", "SB_ID", "CNPJ", "Razão Social", "Nome Fantasia",
                     "Email", "Telefone", "Endereço", "Categoria", "Ativo"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando fornecedores...")
-def fornecedores_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando fornecedores...")
+def fornecedores_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_FORNECEDOR_COLS)
     try:
         from db import fornecedores_listar
@@ -1518,6 +1586,81 @@ def fornecedor_save(dados: dict, sb_id: str | None = None) -> str | None:
         return None
 
 
+def nfe_ja_importada(chave: str) -> bool:
+    """A chave da NF-e fica em lancamentos.origem ("NFE:<chave>")."""
+    from db import sb
+    res = sb().table("lancamentos").select("id").eq("origem", f"NFE:{chave}").limit(1).execute()
+    return bool(res.data)
+
+
+def fornecedor_da_nfe(nota) -> tuple[str | None, bool]:
+    """Acha o fornecedor pelo CNPJ (comparando só dígitos) ou cria. Retorna (uuid, criado)."""
+    from db import sb
+    import nfe as _nfe
+    try:
+        existentes = sb().table("fornecedores").select("id, cnpj").not_.is_("cnpj", "null").execute().data or []
+        for f in existentes:
+            if _nfe.somente_digitos(f.get("cnpj")) == nota.emitente_cnpj:
+                return f["id"], False
+    except Exception:
+        print("[sync.fornecedor_da_nfe] busca:\n", traceback.format_exc())
+    novo = fornecedor_save({
+        "CNPJ": _nfe.formatar_cnpj(nota.emitente_cnpj),
+        "Razão Social": nota.emitente_nome,
+        "Nome Fantasia": nota.emitente_fantasia,
+        "Telefone": nota.emitente_telefone,
+        "Endereço": nota.emitente_endereco,
+        "Categoria": "Materiais",
+    })
+    return novo, bool(novo)
+
+
+def importar_nfe(nota, obra_sb_id: str | None, dar_entrada_estoque: bool = True) -> dict:
+    """Grava a NF-e: fornecedor, entradas de estoque por item e uma conta a pagar por parcela.
+
+    Retorna um resumo {fornecedor_id, fornecedor_criado, itens_ok, itens_falha, contas}.
+    Não verifica duplicidade: chame nfe_ja_importada() antes.
+    """
+    import nfe as _nfe
+    forn_id, forn_criado = fornecedor_da_nfe(nota)
+    doc = f"{nota.numero}/{nota.serie}" if nota.serie else nota.numero
+
+    itens_ok, itens_falha = 0, []
+    if dar_entrada_estoque and obra_sb_id:
+        for it in nota.itens:
+            ok = estoque_movimento_save({
+                "Insumo": it.descricao, "Unidade": it.unidade or "un", "Tipo": "Entrada",
+                "Quantidade": it.quantidade, "Custo Unit.": it.valor_unitario,
+                "Observação": f"NF-e {doc}",
+            }, obra_sb_id)
+            if ok:
+                itens_ok += 1
+            else:
+                itens_falha.append(it.descricao)
+
+    parcelas = _nfe.parcelas_para_pagar(nota)
+    contas = []
+    for i, p in enumerate(parcelas, start=1):
+        sufixo = f" (parc. {i}/{len(parcelas)})" if len(parcelas) > 1 else ""
+        dados = {
+            "Fornecedor": nota.emitente_nome,
+            "Descrição": f"NF-e {doc} — {nota.emitente_fantasia or nota.emitente_nome}{sufixo}",
+            "Categoria": "Materiais",
+            "Valor (R$)": p.valor,
+            "Vencimento": p.vencimento.strftime("%d/%m/%Y"),
+            "Emissão": nota.emissao.strftime("%d/%m/%Y"),
+            "Status": "A Pagar",
+            "NF": doc,
+            "Forma Pag.": nota.forma_pagamento,
+            "fornecedor_id": forn_id,
+            "origem": f"NFE:{nota.chave}",
+        }
+        contas.append({**dados, "SB_ID": lancamento_save(dados, "PAGAR", obra_sb_id)})
+
+    return {"fornecedor_id": forn_id, "fornecedor_criado": forn_criado,
+            "itens_ok": itens_ok, "itens_falha": itens_falha, "contas": contas}
+
+
 def fornecedor_delete(sb_id: str):
     try:
         from db import fornecedor_deletar
@@ -1534,8 +1677,8 @@ _COTACAO_COLS = ["ID", "SB_ID", "Data", "Fornecedor", "Obra", "Total (R$)",
                  "Validade", "Condição Pag.", "Prazo Entrega", "Vencedora"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando cotações...")
-def cotacoes_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando cotações...")
+def cotacoes_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_COTACAO_COLS)
     try:
         from db import cotacoes_listar
@@ -1557,7 +1700,7 @@ def cotacoes_load(_empresa_id: str = "") -> pd.DataFrame:
                 "Total (R$)": float(getattr(row, "total", 0) or 0),
                 "Validade": str(getattr(row, "validade", "") or "")[:10],
                 "Condição Pag.": getattr(row, "condicao_pagamento", "") or "",
-                "Prazo Entrega": str(getattr(row, "prazo_entrega_dias", "") or ""),
+                "Prazo Entrega": str(getattr(row, "prazo_entrega", "") or ""),
                 "Vencedora": "Sim" if getattr(row, "vencedora", False) else "Não",
             })
         return pd.DataFrame(rows)
@@ -1574,7 +1717,8 @@ def cotacao_save(dados: dict, itens: list[dict] | None = None, sb_id: str | None
             "data": dados.get("Data") or None,
             "validade": dados.get("Validade") or None,
             "condicao_pagamento": dados.get("Condição Pag.") or None,
-            "prazo_entrega_dias": int(dados.get("Prazo Entrega")) if str(dados.get("Prazo Entrega", "") or "").strip() else None,
+            "prazo_entrega": str(dados.get("Prazo Entrega") or "").strip() or None,
+            "observacao": dados.get("Observação") or None,
             "total": float(dados.get("Total (R$)", 0) or 0),
             "vencedora": dados.get("Vencedora", "Não") == "Sim",
             "empresa_id": eid,
@@ -1640,7 +1784,7 @@ def cotacao_delete(sb_id: str):
         print("[sync.cotacao_delete] ERRO:\n", traceback.format_exc())
 
 
-@st.cache_data(ttl=60)
+@_cache_por_empresa(ttl=60)
 def cotacao_itens_load(cotacao_sb_id: str) -> list[dict]:
     try:
         from db import cotacao_itens_listar
@@ -1720,8 +1864,8 @@ def _parse_csv_extrato(content: str) -> list[dict]:
 # FÉRIAS
 # ─────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60, show_spinner="Carregando férias...")
-def ferias_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando férias...")
+def ferias_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     _F_COLS = ["ID", "SB_ID", "Funcionário", "Início", "Fim", "Dias", "Valor Bruto",
                "Valor Líquido", "Status", "Pagamento"]
     empty = pd.DataFrame(columns=_F_COLS)
@@ -1782,7 +1926,7 @@ def ferias_save(dados: dict, sb_id: str | None = None) -> str | None:
 # ADICIONAIS
 # ─────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60)
+@_cache_por_empresa(ttl=60)
 def adicionais_load(colaborador_sb_id: str | None = None) -> pd.DataFrame:
     _A_COLS = ["ID", "SB_ID", "Tipo", "Percentual", "Valor (R$)", "Ativo"]
     empty = pd.DataFrame(columns=_A_COLS)
@@ -1840,8 +1984,8 @@ def adicional_delete(sb_id: str):
 # RESCISÃO
 # ─────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60, show_spinner="Carregando rescisões...")
-def rescisoes_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando rescisões...")
+def rescisoes_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     _R_COLS = ["ID", "SB_ID", "Funcionário", "Data Rescisão", "Tipo", "Total Bruto",
                "Total Líquido", "Status", "Pagamento"]
     empty = pd.DataFrame(columns=_R_COLS)
@@ -1912,8 +2056,8 @@ _SUB_COLS = ["ID", "SB_ID", "Razão Social", "Nome Fantasia", "CNPJ",
              "Contato", "Telefone", "Especialidades", "CREA/CA", "Ativo"]
 
 
-@st.cache_data(ttl=60, show_spinner="Carregando subempreiteiros...")
-def subempreiteiros_load(_empresa_id: str = "") -> pd.DataFrame:
+@_cache_por_empresa(ttl=60, show_spinner="Carregando subempreiteiros...")
+def subempreiteiros_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_SUB_COLS)
     try:
         from db import subempreiteiros_listar
@@ -1960,6 +2104,11 @@ def subempreiteiro_save(dados: dict, sb_id: str | None = None) -> str | None:
             "ativo": dados.get("Ativo", "Sim") == "Sim",
             "empresa_id": _empresa_id(),
         }
+        # Só envia se o formulário tiver o campo, para não apagar dados numa edição
+        if "Endereço" in dados:
+            payload["endereco"] = dados.get("Endereço") or None
+        if "Observações" in dados:
+            payload["observacoes"] = dados.get("Observações") or None
         res = subempreiteiro_atualizar(sb_id, payload) if sb_id else subempreiteiro_criar(payload)
         return (res or {}).get("id")
     except Exception:

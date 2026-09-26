@@ -3,6 +3,7 @@ Camada de acesso ao Supabase para o ERP MBR.
 Todas as leituras e escritas do banco passam por aqui.
 """
 import os
+import time
 from functools import lru_cache
 from dotenv import load_dotenv
 from supabase import create_client, Client, ClientOptions
@@ -10,10 +11,16 @@ import pandas as pd
 
 load_dotenv()
 
-# ── Cliente anon (leitura/escrita normal) ────────────────────────────────────
+# ── Clientes ─────────────────────────────────────────────────────────────────
+# Cada sessão do Streamlit tem o SEU cliente, autenticado com o JWT do usuário,
+# e o RLS do banco garante que ele só enxergue a própria empresa.
+# service_role (sb_admin) fica restrito a cadastro e ao painel da plataforma.
 
-@lru_cache(maxsize=1)
-def get_client() -> Client:
+_SESSION_KEY = "_sb_user_client"
+
+
+def new_anon_client() -> Client:
+    """Cliente novo, sem sessão. Nunca compartilhar entre usuários."""
     url  = os.environ.get("SUPABASE_URL", "")
     key  = os.environ.get("SUPABASE_ANON_KEY", "")
     if not url or not key or "SEU_PROJETO" in url:
@@ -25,16 +32,49 @@ def get_client() -> Client:
     return create_client(url, key, options=opts)
 
 
+def set_user_client(client: Client | None) -> None:
+    """Guarda na sessão o cliente já autenticado (após sign_in)."""
+    import streamlit as st
+    if client is None:
+        st.session_state.pop(_SESSION_KEY, None)
+    else:
+        st.session_state[_SESSION_KEY] = client
+
+
+def _refresh_if_needed(client: Client) -> None:
+    try:
+        sess = client.auth.get_session()
+        if sess and sess.expires_at and sess.expires_at - time.time() < 120:
+            client.auth.refresh_session()
+    except Exception as e:
+        print(f"[db] falha ao renovar sessão: {e}")
+
+
 def sb() -> Client:
-    """Retorna cliente Supabase — usa service_role se disponível (bypassa RLS)."""
-    admin = get_admin_client()
-    if admin:
-        return admin
-    return get_client()
+    """Cliente do usuário logado (RLS aplicado).
+
+    Sem usuário logado, devolve um cliente anônimo descartável, que não enxerga
+    dados de empresa. Em modo dev local ("Pular login") usa service_role.
+    """
+    import streamlit as st
+    try:
+        client = st.session_state.get(_SESSION_KEY)
+        dev_bypass = st.session_state.get("_dev_bypass", False)
+    except Exception:  # fora de um script Streamlit (scripts/testes)
+        client, dev_bypass = None, False
+    if client is not None:
+        _refresh_if_needed(client)
+        return client
+    if dev_bypass:
+        admin = get_admin_client()
+        if admin:
+            return admin
+    return new_anon_client()
 
 
-# ── Cliente admin (service_role — apenas operações administrativas) ───────────
+# ── Cliente admin (service_role — ignora RLS, usar com cuidado) ──────────────
 
+@lru_cache(maxsize=1)
 def get_admin_client() -> Client | None:
     url  = os.environ.get("SUPABASE_URL", "")
     key  = os.environ.get("SUPABASE_SERVICE_KEY", "")
@@ -46,6 +86,11 @@ def get_admin_client() -> Client | None:
 
 def sb_admin() -> Client | None:
     return get_admin_client()
+
+
+def get_client() -> Client:
+    """Compatibilidade: igual a sb()."""
+    return sb()
 
 
 # ── Utilitários ──────────────────────────────────────────────────────────────

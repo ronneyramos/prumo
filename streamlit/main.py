@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 import io
 import unicodedata
 import importlib
@@ -11,14 +11,24 @@ import sync
 importlib.reload(sync)
 import db
 importlib.reload(db)
+from confirmacao import pedir_confirmacao as _pedir_confirmacao, confirmou_exclusao as _confirmou_exclusao
+from campos import campo_data, campo_mes, ISO
 
 st.set_page_config(page_title="Prumo ERP", layout="wide", page_icon="🏗️",
                    initial_sidebar_state="expanded")
 
 # ── Inicialização do estado ───────────────────────────────────────────────────
 
+_DEV_EMPRESA_ID = "00000000-0000-0000-0000-000000000001"  # MBR, só para "Pular login" local
+
+
 def _is_dev() -> bool:
     return os.path.exists(os.path.join(os.path.dirname(__file__), ".env"))
+
+
+def _is_plataforma_admin() -> bool:
+    """Dono da plataforma (tabela plataforma_admins). Não confundir com admin da empresa."""
+    return bool(st.session_state.get("plataforma_admin"))
 
 def _supabase_ok() -> bool:
     url = os.environ.get("SUPABASE_URL", "")
@@ -50,37 +60,6 @@ def _obra_uuid(obra_nome: str) -> str | None:
         rows = df[df["Nome"].str.contains(nome_clean, case=False, na=False)]
     return _sb_id(df, rows["ID"].iloc[0]) if len(rows) else None
 
-
-def _carregar_obras_service():
-    """Carrega obras via service_role (bypassa RLS). Retorna DataFrame ou None."""
-    try:
-        from db import sb_admin
-        admin = sb_admin()
-        if not admin: return None
-        r = admin.table("obras").select("*").is_("deleted_at", None).order("created_at").execute()
-        df = pd.DataFrame(r.data) if r.data else pd.DataFrame()
-        if df.empty: return None
-        rows = []
-        for i, row in enumerate(df.itertuples(index=False), start=1):
-            _id_raw = getattr(row, "id", None)
-            _sb_id  = str(_id_raw) if _id_raw else None
-            rows.append({
-                "ID": i, "SB_ID": _sb_id,
-                "Nome": getattr(row, "nome", ""), "Tipo": getattr(row, "tipo", ""),
-                "Cliente": getattr(row, "cliente", ""),
-                "CNPJ Cliente": getattr(row, "cnpj_cliente", ""),
-                "Endereço": getattr(row, "endereco", ""),
-                "Valor Contrato (R$)": float(getattr(row, "valor_contrato", 0) or 0),
-                "BDI (%)": round(float(getattr(row, "bdi", 0.25) or 0.25) * 100, 2),
-                "Início": "", "Término": "",
-                "% Físico": int(float(getattr(row, "pct_fisico", 0) or 0)),
-                "Status": getattr(row, "status", "Planejamento"),
-                "Responsável": getattr(row, "responsavel", ""),
-            })
-        return pd.DataFrame(rows)
-    except Exception as e:
-        print(f"[_carregar_obras_service] ERRO: {e}")
-        return None
 
 def _load_supabase_data(emp_id: str) -> bool:
     """Carrega todos os datasets do Supabase em série."""
@@ -119,12 +98,6 @@ def _init():
             ok = _load_supabase_data(emp_id)
         if ok:
             st.session_state._erp_init_done = True
-
-    # ── Se obras ainda está vazio, tenta fallback service_role ────────────────
-    if st.session_state.get("obras", pd.DataFrame()).empty:
-        df = _carregar_obras_service()
-        if df is not None:
-            st.session_state.obras = df
 
     # ── Fallback: tabelas que ainda não têm integração Supabase ───────────────
     if "obras" not in st.session_state:
@@ -185,6 +158,46 @@ def _init():
         except Exception:
             st.session_state["_alertas_cache"] = {"vencimentos": [], "ncs_abertas": [], "estoque_critico": []}
         st.session_state["_alertas_verificados"] = True
+
+
+def _destinatarios_alerta() -> tuple[list[str], str]:
+    """E-mails que recebem os alertas da empresa logada (admins + e-mail da empresa)
+    e o nome da empresa. RLS garante que só venham dados da própria empresa."""
+    from db import sb
+    eid = st.session_state.get("empresa_id")
+    emails, nome = [], ""
+    try:
+        emp = sb().table("empresas").select("nome, email").eq("id", eid).execute().data
+        if emp:
+            nome = emp[0].get("nome") or ""
+            if emp[0].get("email"):
+                emails.append(emp[0]["email"])
+        admins = sb().table("empresa_membros").select("user_id").eq("empresa_id", eid).eq("role", "admin").execute().data
+        ids = [a["user_id"] for a in admins or []]
+        if ids:
+            perfis = sb().table("profiles").select("email").in_("id", ids).execute().data
+            emails += [p["email"] for p in perfis or [] if p.get("email")]
+    except Exception as e:
+        print(f"[alertas] destinatários: {e}")
+    return list(dict.fromkeys(emails)), nome
+
+
+def _enviar_alertas_ui(alertas: dict, key: str):
+    """Botão de envio do resumo de alertas para os destinatários da empresa."""
+    import alertas as _alrt
+    dest, nome = _destinatarios_alerta()
+    if not _alrt.email_configurado():
+        st.caption("Envio de e-mail não configurado na plataforma.")
+        return
+    if not dest:
+        st.caption("Nenhum destinatário: cadastre um administrador ou o e-mail da empresa.")
+        return
+    if st.button("📧 Enviar email de alertas", key=key, type="primary",
+                 help="Destinatários: " + ", ".join(dest)):
+        if _alrt.enviar_resumo_alertas(alertas, dest, nome):
+            st.success(f"✅ Alertas enviados para {', '.join(dest)}")
+        else:
+            st.warning("Nenhum alerta para enviar ou falha no envio.")
 
 
 def _obras_validas(df: pd.DataFrame) -> pd.DataFrame:
@@ -353,6 +366,7 @@ def _auth_login():
     """Tela de login fiel ao mockup: fundo bege, split, imagem."""
     if "auth_mode" not in st.session_state:
         st.session_state.auth_mode = "login"
+    _show_toast()  # ex.: "senha alterada" vindo da recuperação
 
     st.markdown("""<style>
         :root { --primary-color: #1B3A5E !important; }
@@ -464,7 +478,6 @@ def _auth_login():
 
             st.markdown("""
             <div style="text-align:center;margin-top:14px;">
-                <p style="font-size:13px;color:#6B7280;margin:0 0 6px;">Esqueceu a senha?</p>
                 <p style="font-size:13px;color:#6B7280;margin:0;">
                     Ainda não tem conta?
                     <strong style="color:#1B3A5E;cursor:pointer;">Solicite uma demonstração</strong>
@@ -473,8 +486,12 @@ def _auth_login():
             </div>
             """, unsafe_allow_html=True)
 
-            if st.button("Criar conta gratuita →", key="btn_ir_cadastro", width='content'):
+            _b1, _b2 = st.columns(2)
+            if _b1.button("Criar conta gratuita →", key="btn_ir_cadastro", width='content'):
                 st.session_state.auth_mode = "cadastro"
+                st.rerun()
+            if _b2.button("Esqueci minha senha", key="btn_ir_recuperar", width='content'):
+                st.session_state.auth_mode = "recuperar"
                 st.rerun()
 
             st.markdown("<br>", unsafe_allow_html=True)
@@ -486,63 +503,150 @@ def _auth_login():
                     "nome":  "Desenvolvedor",
                 }
                 st.session_state.usuario_role  = "admin"
-                st.session_state.empresa_id    = "00000000-0000-0000-0000-000000000001"
+                st.session_state.empresa_id    = _DEV_EMPRESA_ID
                 st.session_state.usuario_obras_ids = []
+                st.session_state.plataforma_admin = True
+                st.session_state._dev_bypass = True   # só local: sem JWT, usa service_role
                 st.rerun()
 
             if entrar:
                 if not email or not senha:
                     st.error("Preencha e-mail e senha.")
                     return
+                from db import new_anon_client, set_user_client
+                cli = new_anon_client()  # cliente exclusivo desta sessão
                 try:
-                    from db import sb
-                    res  = sb().auth.sign_in_with_password({"email": email, "password": senha})
-                    meta = res.user.user_metadata or {}
-                    st.session_state.usuario = {
-                        "id":    res.user.id,
-                        "email": res.user.email,
-                        "nome":  meta.get("full_name") or res.user.email,
-                    }
-                    role = None
+                    res = cli.auth.sign_in_with_password({"email": email, "password": senha})
+                except Exception as _auth_e:
+                    st.error("E-mail ou senha inválidos.")
+                    print(f"[auth] erro login: {_auth_e}")
+                    return
+
+                # Empresa e perfil vêm de empresa_membros (só service_role escreve lá)
+                try:
+                    mem = cli.table("empresa_membros").select("empresa_id, role, empresas(status)") \
+                             .eq("user_id", res.user.id).limit(1).execute().data
+                except Exception as _mem_e:
+                    print(f"[auth] erro vínculo: {_mem_e}")
+                    mem = []
+                if not mem:
+                    cli.auth.sign_out()
+                    st.error("🚫 **Seu usuário não está vinculado a nenhuma empresa.** "
+                             "Peça ao administrador da sua construtora para liberar o acesso.")
+                    return
+                # A policy de empresas só libera empresa ativa; sem status = pendente/bloqueada
+                _st_emp = (mem[0].get("empresas") or {}).get("status")
+                if not _st_emp:
                     try:
-                        from db import sb_admin as _sb_adm
-                        _adm = _sb_adm()
-                        if _adm:
-                            role_res = _adm.table("user_roles").select("role").eq("user_id", res.user.id).execute()
-                        else:
-                            role_res = sb().table("user_roles").select("role").eq("user_id", res.user.id).execute()
-                        role = role_res.data[0]["role"] if (role_res and role_res.data) else None
+                        from db import sb_admin
+                        _st_emp = sb_admin().table("empresas").select("status") \
+                            .eq("id", mem[0]["empresa_id"]).execute().data[0]["status"]
                     except Exception:
-                        role = None
-                    if not role:
-                        role = meta.get("role") or "admin"
-                    st.session_state.usuario_role  = role
-                    st.session_state.empresa_id    = meta.get("empresa_id") or "00000000-0000-0000-0000-000000000001"
-                    try:
-                        _st_res = sb().table("empresas").select("status").eq("id", st.session_state.empresa_id).execute()
-                        _st_emp = _st_res.data[0]["status"] if _st_res.data else "ativo"
-                    except Exception:
-                        _st_emp = "ativo"
-                    if _st_emp == "pendente":
-                        st.error("⏳ **Sua conta está aguardando aprovação.** Entraremos em contato em breve.")
-                        st.session_state.clear()
-                        st.stop()
+                        _st_emp = "pendente"
+                if _st_emp != "ativo":
+                    cli.auth.sign_out()
                     if _st_emp == "bloqueado":
                         st.error("🚫 **Sua conta foi bloqueada.** Entre em contato com o suporte.")
-                        st.session_state.clear()
-                        st.stop()
-                    if role in ("engenheiro", "adm_obra", "suprimentos", "qualidade"):
-                        try:
-                            obras_res = sb().table("usuario_obras").select("obra_id").eq("user_id", res.user.id).execute()
-                            st.session_state.usuario_obras_ids = [r["obra_id"] for r in (obras_res.data or [])]
-                        except Exception:
-                            st.session_state.usuario_obras_ids = []
                     else:
+                        st.error("⏳ **Sua conta está aguardando aprovação.** Entraremos em contato em breve.")
+                    return
+
+                meta = res.user.user_metadata or {}
+                st.session_state.usuario = {
+                    "id":    res.user.id,
+                    "email": res.user.email,
+                    "nome":  meta.get("full_name") or res.user.email,
+                }
+                st.session_state.empresa_id = mem[0]["empresa_id"]
+                role = mem[0].get("role") or "visualizador"
+                try:
+                    roles = cli.table("user_roles").select("role").eq("user_id", res.user.id).execute().data
+                    if roles and not any(r["role"] == role for r in roles):
+                        role = roles[0]["role"]
+                except Exception:
+                    pass
+                st.session_state.usuario_role = role
+                try:
+                    st.session_state.plataforma_admin = bool(
+                        cli.table("plataforma_admins").select("user_id").eq("user_id", res.user.id).execute().data)
+                except Exception:
+                    st.session_state.plataforma_admin = False
+                if role in ("engenheiro", "adm_obra", "suprimentos", "qualidade"):
+                    try:
+                        obras_res = cli.table("usuario_obras").select("obra_id").eq("user_id", res.user.id).execute()
+                        st.session_state.usuario_obras_ids = [r["obra_id"] for r in (obras_res.data or [])]
+                    except Exception:
                         st.session_state.usuario_obras_ids = []
+                else:
+                    st.session_state.usuario_obras_ids = []
+                set_user_client(cli)
+                st.rerun()
+
+        elif st.session_state.auth_mode == "recuperar":  # ── Recuperar senha ──────
+            # Fluxo por código: o e-mail "Reset Password" do Supabase precisa
+            # conter {{ .Token }} (código de 6 dígitos). Links com #token não
+            # funcionam no Streamlit, que não lê o fragmento da URL.
+            st.markdown("""
+            <div style="margin-bottom:1.4rem;">
+                <div style="font-size:1.4rem;font-weight:900;color:#1B3A5E;text-transform:uppercase;">
+                    RECUPERAR SENHA
+                </div>
+                <div style="font-size:0.85rem;color:#6B7280;margin-top:4px;">
+                    Enviaremos um código de 6 dígitos para o seu e-mail
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            _rec_email = st.session_state.get("_rec_email")
+            if not _rec_email:
+                with st.form("form_rec_email"):
+                    email_rec = st.text_input("E-mail", placeholder="seu@email.com")
+                    enviar = st.form_submit_button("ENVIAR CÓDIGO", width='stretch')
+                if enviar:
+                    if not email_rec.strip():
+                        st.error("Informe o e-mail.")
+                    else:
+                        try:
+                            from db import new_anon_client
+                            new_anon_client().auth.reset_password_for_email(email_rec.strip())
+                        except Exception as _e_rec:
+                            print(f"[recuperar] envio: {_e_rec}")  # não revela se o e-mail existe
+                        st.session_state._rec_email = email_rec.strip()
+                        st.rerun()
+            else:
+                st.info(f"Se **{_rec_email}** estiver cadastrado, você vai receber um código em "
+                        "alguns minutos. Confira também o spam.")
+                with st.form("form_rec_codigo"):
+                    codigo    = st.text_input("Código recebido por e-mail", max_chars=10)
+                    nova      = st.text_input("Nova senha", type="password", placeholder="Mínimo 6 caracteres")
+                    nova_conf = st.text_input("Repita a nova senha", type="password")
+                    salvar    = st.form_submit_button("SALVAR NOVA SENHA", width='stretch')
+                if salvar:
+                    if len(nova) < 6:
+                        st.error("A senha precisa ter no mínimo 6 caracteres.")
+                    elif nova != nova_conf:
+                        st.error("As senhas não conferem.")
+                    else:
+                        try:
+                            from db import new_anon_client
+                            _cli_rec = new_anon_client()
+                            _cli_rec.auth.verify_otp({"email": _rec_email, "token": codigo.strip(),
+                                                      "type": "recovery"})
+                            _cli_rec.auth.update_user({"password": nova})
+                            _cli_rec.auth.sign_out()
+                            st.session_state.pop("_rec_email", None)
+                            st.session_state.auth_mode = "login"
+                            _notify("✅ Senha alterada! Entre com a nova senha.")
+                            st.rerun()
+                        except Exception as _e_cod:
+                            print(f"[recuperar] código: {_e_cod}")
+                            st.error("Código inválido ou expirado. Peça um novo código.")
+                if st.button("Enviar outro código", key="btn_rec_reenviar"):
+                    st.session_state.pop("_rec_email", None)
                     st.rerun()
-                except Exception as _auth_e:
-                    st.error(f"Login inválido: {_auth_e}")
-                    print(f"[auth] erro login: {_auth_e}")
+            if st.button("← Voltar ao login", key="btn_rec_voltar"):
+                st.session_state.pop("_rec_email", None)
+                st.session_state.auth_mode = "login"
+                st.rerun()
 
         else:  # ── Criar conta ──────────────────────────────────────────────
             st.markdown("""
@@ -573,29 +677,26 @@ def _auth_login():
                     st.error("Senha deve ter no mínimo 6 caracteres.")
                 else:
                     try:
-                        from db import sb
-                        res_cad = sb().auth.sign_up({
+                        from db import new_anon_client, sb_admin
+                        res_cad = new_anon_client().auth.sign_up({
                             "email": email_cad, "password": senha_cad,
-                            "options": {"data": {"full_name": nome_usuario, "role": "admin"}},
+                            "options": {"data": {"full_name": nome_usuario}},
                         })
                         if not res_cad.user:
                             st.error("Não foi possível criar o usuário. Tente outro e-mail.")
                         else:
                             user_id = res_cad.user.id
-                            try:
-                                rpc_res    = sb().rpc("registrar_empresa", {"p_nome_empresa": nome_empresa, "p_user_id": user_id}).execute()
-                                empresa_id = rpc_res.data
-                            except Exception as _e_rpc:
-                                print(f"[cadastro] RPC: {_e_rpc}")
-                                emp_res    = sb().table("empresas").insert({"nome": nome_empresa, "cidade": cidade_cad, "estado": estado_cad}).execute()
-                                empresa_id = (emp_res.data[0] if emp_res.data else {}).get("id")
+                            # Empresa (pendente) + vínculo admin: só via service_role
+                            _adm = sb_admin()
+                            rpc_res    = _adm.rpc("registrar_empresa", {"p_nome_empresa": nome_empresa, "p_user_id": user_id}).execute()
+                            empresa_id = rpc_res.data
                             if empresa_id:
                                 try:
-                                    sb().table("empresas").update({"status": "pendente"}).eq("id", empresa_id).execute()
+                                    _adm.table("empresas").update({"cidade": cidade_cad, "estado": estado_cad}).eq("id", empresa_id).execute()
                                 except Exception:
                                     pass
                                 try:
-                                    sb().rpc("seed_demo_data", {"p_empresa_id": str(empresa_id)}).execute()
+                                    _adm.rpc("seed_demo_data", {"p_empresa_id": str(empresa_id)}).execute()
                                 except Exception as _e_seed:
                                     print(f"[cadastro] seed_demo_data: {_e_seed}")
                             st.success("""
@@ -696,21 +797,28 @@ def pagina_admin():
     from db import sb, sb_admin
     _init()
     st.title("⚙️ Administração")
+    _minha_empresa = st.session_state.get("empresa_id")
 
-    tabs = st.tabs(["👥 Usuários", "🏢 Empresas", "💳 Assinatura"])
+    # Empresas (aprovar/bloquear) é da plataforma, não do admin da construtora
+    _abas = ["👥 Usuários", "💳 Assinatura"] + (["🏢 Empresas"] if _is_plataforma_admin() else [])
+    tabs = st.tabs(_abas)
 
     # ===== TAB 1: USUÁRIOS =====================================================
     with tabs[0]:
-        # ── Lista de usuários ──────────────────────────────────────────────────
+        # ── Lista de usuários (RLS: só membros da própria empresa) ─────────────
         try:
-            profiles = sb().table("profiles").select("id, nome, email, created_at").order("created_at").execute()
-            roles_raw = sb().table("user_roles").select("user_id, role").execute()
+            membros = sb().table("empresa_membros").select("user_id").eq("empresa_id", _minha_empresa).execute()
+            _ids_membros = [m["user_id"] for m in (membros.data or [])]
+            profiles = sb().table("profiles").select("id, nome, email, created_at") \
+                           .in_("id", _ids_membros or ["00000000-0000-0000-0000-000000000000"]) \
+                           .order("created_at").execute()
+            roles_raw = sb().table("user_roles").select("user_id, role").eq("empresa_id", _minha_empresa).execute()
         except Exception as e:
             st.error(f"Erro ao carregar dados: {e}")
             return
 
         df_profiles = pd.DataFrame(profiles.data or [])
-        df_roles    = pd.DataFrame(roles_raw.data or [])
+        df_roles    = pd.DataFrame(roles_raw.data or [], columns=["user_id", "role"])
 
         # Monta dicionário user_id → [roles]
         _roles_map = df_roles.groupby("user_id")["role"].apply(list).to_dict()
@@ -746,14 +854,16 @@ def pagina_admin():
                                     "user_metadata": {"full_name": inv_nome},
                                 })
                                 uid = resp.user.id
-                                # Atribui role (usa service_role para bypassar RLS)
+                                # Vincula à empresa de quem convidou + perfil (service_role)
                                 try:
+                                    admin.table("empresa_membros").insert({
+                                        "user_id": uid, "empresa_id": _minha_empresa, "role": inv_role,
+                                    }).execute()
                                     admin.table("user_roles").insert({
-                                        "user_id": uid,
-                                        "role": inv_role,
+                                        "user_id": uid, "role": inv_role, "empresa_id": _minha_empresa,
                                     }).execute()
                                 except Exception as role_e:
-                                    st.warning(f"Usuário criado, mas falha ao atribuir role: {role_e}")
+                                    st.warning(f"Usuário criado, mas falha ao vincular à empresa: {role_e}")
                                 # Vincula obras (usa service_role)
                                 if inv_obras:
                                     try:
@@ -777,13 +887,8 @@ def pagina_admin():
                     key="diag_user")
                 if st.button("Ver roles no banco", key="diag_roles"):
                     try:
-                        _adm = sb_admin()
-                        if _adm:
-                            dr = _adm.table("user_roles").select("*").eq("user_id", diag_user).execute()
-                            st.write("Registros em `user_roles`:", dr.data)
-                        else:
-                            dr = sb().table("user_roles").select("*").eq("user_id", diag_user).execute()
-                            st.write("Registros em `user_roles`:", dr.data)
+                        dr = sb().table("user_roles").select("*").eq("user_id", diag_user).execute()
+                        st.write("Registros em `user_roles`:", dr.data)
                     except Exception as _de:
                         st.error(f"Erro: {_de}")
 
@@ -832,71 +937,34 @@ def pagina_admin():
                                 else:
                                     removidas = [r for r in roles if r not in novas_roles]
                                     adicionadas = [r for r in novas_roles if r not in roles]
+                                    # uid vem da lista filtrada por RLS: é membro desta empresa
                                     try:
                                         for r in removidas:
-                                            _adm.table("user_roles").delete().eq("user_id", uid).eq("role", r).execute()
+                                            _adm.table("user_roles").delete().eq("user_id", uid).eq("role", r) \
+                                                .eq("empresa_id", _minha_empresa).execute()
                                         for r in adicionadas:
-                                            _adm.table("user_roles").insert({"user_id": uid, "role": r}).execute()
+                                            _adm.table("user_roles").insert({"user_id": uid, "role": r,
+                                                                             "empresa_id": _minha_empresa}).execute()
+                                        if novas_roles:
+                                            _adm.table("empresa_membros").update({"role": novas_roles[0]}) \
+                                                .eq("user_id", uid).eq("empresa_id", _minha_empresa).execute()
                                     except Exception as e:
                                         st.error(f"Erro ao atualizar roles: {e}")
-                                # Atualiza obras
-                                try:
-                                    sb().table("usuario_obras").delete().eq("user_id", uid).execute()
-                                    if novas_obras:
-                                        sb().table("usuario_obras").insert([
-                                            {"user_id": uid, "obra_id": oid} for oid in novas_obras
-                                        ]).execute()
-                                except Exception as e:
-                                    st.error(f"Erro ao atualizar obras: {e}")
+                                    # Obras: só as da própria empresa (lista vem do session_state já filtrado)
+                                    _obras_empresa = set(st.session_state.obras["SB_ID"].dropna().astype(str))
+                                    try:
+                                        _adm.table("usuario_obras").delete().eq("user_id", uid) \
+                                            .in_("obra_id", list(_obras_empresa) or ["00000000-0000-0000-0000-000000000000"]).execute()
+                                        _ins = [{"user_id": uid, "obra_id": oid} for oid in novas_obras if str(oid) in _obras_empresa]
+                                        if _ins:
+                                            _adm.table("usuario_obras").insert(_ins).execute()
+                                    except Exception as e:
+                                        st.error(f"Erro ao atualizar obras: {e}")
                                 st.success("Permissões atualizadas!")
                                 st.rerun()
 
-    # ===== TAB 2: EMPRESAS =====================================================
+    # ===== TAB 2: ASSINATURA ==================================================
     with tabs[1]:
-        try:
-            empresas_data = sb().table("empresas").select("id, nome, status, created_at, aprovado_em, bloqueado_em").order("created_at").execute()
-        except Exception as e:
-            st.error(f"Erro ao carregar empresas: {e}")
-            empresas_data = type("obj", (), {"data": []})()
-
-        df_emp = pd.DataFrame(empresas_data.data or [])
-        for _, row in df_emp.iterrows():
-            eid    = row["id"]
-            sts    = (row.get("status") or "pendente").lower()
-            cor    = {"ativo": "#059669", "pendente": "#D97706", "bloqueado": "#DC2626"}.get(sts, "#6B7280")
-            sts_label = {"ativo": "✅ Ativo", "pendente": "⏳ Pendente", "bloqueado": "🚫 Bloqueado"}.get(sts, sts)
-            with st.container(border=True):
-                cols = st.columns([3, 1, 1])
-                with cols[0]:
-                    st.markdown(f"**{row.get('nome', '—')}**")
-                    st.caption(f"Cadastro: {row.get('created_at', '—')}")
-                with cols[1]:
-                    st.markdown(f"<span style='color:{cor};font-weight:700;'>{sts_label}</span>",
-                                unsafe_allow_html=True)
-                with cols[2]:
-                    _agora = datetime.now(timezone.utc).isoformat()
-                    if sts == "pendente":
-                        if st.button("✅ Aprovar", key=f"aprovar_{eid}", type="primary", width='stretch'):
-                            sb().table("empresas").update({"status": "ativo", "aprovado_em": _agora}).eq("id", eid).execute()
-                            st.success(f"Empresa {row.get('nome')} aprovada!")
-                            st.rerun()
-                        if st.button("❌ Bloquear", key=f"bloquear_{eid}", width='stretch'):
-                            sb().table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
-                            st.error(f"Empresa {row.get('nome')} bloqueada!")
-                            st.rerun()
-                    elif sts == "bloqueado":
-                        if st.button("🔄 Reativar", key=f"reativar_{eid}", type="primary", width='stretch'):
-                            sb().table("empresas").update({"status": "ativo", "aprovado_em": _agora}).eq("id", eid).execute()
-                            st.success(f"Empresa {row.get('nome')} reativada!")
-                            st.rerun()
-                    elif sts == "ativo":
-                        if st.button("🔒 Bloquear", key=f"bloq_{eid}", width='stretch'):
-                            sb().table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
-                            st.error(f"Empresa {row.get('nome')} bloqueada!")
-                            st.rerun()
-
-    # ===== TAB 3: ASSINATURA ==================================================
-    with tabs[2]:
         _init()
         info = _plano_info()
         planos = []
@@ -923,21 +991,71 @@ def pagina_admin():
                     <p style='font-size:12px;color:#6B7280;margin:12px 0;'>{com_atual}</p>
                 </div>
                 """, unsafe_allow_html=True)
-                if not ativo:
+                if not ativo and _is_plataforma_admin():
                     if st.button(f"Alterar para {p['nome']}", key=f"plan_{p['slug']}", width='stretch'):
                         try:
-                            sb().table("empresas").update({"plan_id": p["id"]}).eq("id", st.session_state.empresa_id).execute()
+                            sb_admin().table("empresas").update({"plan_id": p["id"]}).eq("id", st.session_state.empresa_id).execute()
                             st.success(f"Plano alterado para {p['nome']}!")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro: {e}")
+        if not _is_plataforma_admin():
+            st.caption("Para mudar de plano, fale com o suporte do Prumo.")
+
+
+    # ===== TAB 3: EMPRESAS (só dono da plataforma) ============================
+    if _is_plataforma_admin():
+        with tabs[2]:
+            _adm_emp = sb_admin()  # aprovação atua sobre todas as empresas
+            try:
+                empresas_data = _adm_emp.table("empresas").select("id, nome, status, created_at, aprovado_em, bloqueado_em").order("created_at").execute()
+            except Exception as e:
+                st.error(f"Erro ao carregar empresas: {e}")
+                empresas_data = type("obj", (), {"data": []})()
+
+            df_emp = pd.DataFrame(empresas_data.data or [])
+            for _, row in df_emp.iterrows():
+                eid    = row["id"]
+                sts    = (row.get("status") or "pendente").lower()
+                cor    = {"ativo": "#059669", "pendente": "#D97706", "bloqueado": "#DC2626"}.get(sts, "#6B7280")
+                sts_label = {"ativo": "✅ Ativo", "pendente": "⏳ Pendente", "bloqueado": "🚫 Bloqueado"}.get(sts, sts)
+                with st.container(border=True):
+                    cols = st.columns([3, 1, 1])
+                    with cols[0]:
+                        st.markdown(f"**{row.get('nome', '—')}**")
+                        st.caption(f"Cadastro: {row.get('created_at', '—')}")
+                    with cols[1]:
+                        st.markdown(f"<span style='color:{cor};font-weight:700;'>{sts_label}</span>",
+                                    unsafe_allow_html=True)
+                    with cols[2]:
+                        _agora = datetime.now(timezone.utc).isoformat()
+                        if sts == "pendente":
+                            if st.button("✅ Aprovar", key=f"aprovar_{eid}", type="primary", width='stretch'):
+                                _adm_emp.table("empresas").update({"status": "ativo", "aprovado_em": _agora}).eq("id", eid).execute()
+                                st.success(f"Empresa {row.get('nome')} aprovada!")
+                                st.rerun()
+                            if st.button("❌ Bloquear", key=f"bloquear_{eid}", width='stretch'):
+                                _adm_emp.table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
+                                st.error(f"Empresa {row.get('nome')} bloqueada!")
+                                st.rerun()
+                        elif sts == "bloqueado":
+                            if st.button("🔄 Reativar", key=f"reativar_{eid}", type="primary", width='stretch'):
+                                _adm_emp.table("empresas").update({"status": "ativo", "aprovado_em": _agora}).eq("id", eid).execute()
+                                st.success(f"Empresa {row.get('nome')} reativada!")
+                                st.rerun()
+                        elif sts == "ativo":
+                            if st.button("🔒 Bloquear", key=f"bloq_{eid}", width='stretch'):
+                                _adm_emp.table("empresas").update({"status": "bloqueado", "bloqueado_em": _agora}).eq("id", eid).execute()
+                                st.error(f"Empresa {row.get('nome')} bloqueada!")
+                                st.rerun()
+
 
 
 # ── Developer Panel ──────────────────────────────────────────────────────────
 
 def _dev_log(level, category, action, details=None):
     try:
-        from db import sb
+        from db import sb_admin as sb  # painel da plataforma: todas as empresas
         sb().table("system_logs").insert({
             "level": level, "category": category, "action": action,
             "user_id": st.session_state.get("usuario", {}).get("id"),
@@ -949,7 +1067,7 @@ def _dev_log(level, category, action, details=None):
 
 def pagina_dev_panel():
     st.title("🛠️ Painel do Desenvolvedor")
-    from db import sb
+    from db import sb_admin as sb  # painel da plataforma: todas as empresas
 
     tab_emp, tab_users, tab_grants, tab_logs, tab_config, tab_sql, tab_sys = st.tabs([
         "🏢 Empresas", "👥 Usuários", "🤝 Parcerias", "📋 Logs",
@@ -1034,37 +1152,67 @@ def pagina_dev_panel():
     # TAB 2 — USUÁRIOS
     # ═══════════════════════════════════════════════════════════════════
     with tab_users:
+        _PERFIS = ["admin","engenheiro","financeiro","suprimentos","qualidade","rh","visualizador","gestor","contratante"]
         try:
             profiles = sb().table("profiles").select("id, nome, email, created_at").order("created_at").execute()
             roles_raw = sb().table("user_roles").select("user_id, role").execute()
+            membros_raw = sb().table("empresa_membros").select("user_id, empresa_id").execute()
+            emps_raw = sb().table("empresas").select("id, nome").order("nome").execute()
             df_profiles = pd.DataFrame(profiles.data or [])
-            df_roles = pd.DataFrame(roles_raw.data or [])
+            df_roles = pd.DataFrame(roles_raw.data or [], columns=["user_id", "role"])
             roles_map = df_roles.groupby("user_id")["role"].apply(list).to_dict()
+            membro_map = {m["user_id"]: m["empresa_id"] for m in (membros_raw.data or [])}
+            emp_nomes = {e["id"]: e["nome"] for e in (emps_raw.data or [])}
         except Exception as e:
-            st.error(f"Erro: {e}"); df_profiles = pd.DataFrame(); roles_map = {}
+            st.error(f"Erro: {e}"); df_profiles = pd.DataFrame(); roles_map = {}; membro_map = {}; emp_nomes = {}
 
         if df_profiles.empty:
             st.info("Nenhum usuário.")
         else:
+            _SEM = "— sem empresa (sem acesso) —"
             for _, row in df_profiles.iterrows():
                 uid = row["id"]; roles = roles_map.get(uid, [])
+                emp_atual = membro_map.get(uid)
                 with st.container(border=True):
-                    cols = st.columns([3, 2, 2])
+                    cols = st.columns([3, 3, 2, 2])
                     cols[0].markdown(f"**{row.get('nome','?')}**")
                     cols[1].markdown(f"`{row.get('email','')}`")
-                    cols[2].markdown(" / ".join(roles) if roles else "—")
+                    cols[2].markdown(emp_nomes.get(emp_atual, "🚫 sem empresa"))
+                    cols[3].markdown(" / ".join(roles) if roles else "—")
                     with st.popover("✏️", key=f"edit_user_{uid}"):
-                        novas_roles = st.multiselect("Perfis",
-                            ["admin","engenheiro","financeiro","suprimentos","qualidade","rh","visualizador","gestor","contratante"],
-                            default=roles, key=f"roles_{uid}")
+                        _opcoes = [_SEM] + list(emp_nomes.keys())
+                        nova_emp = st.selectbox(
+                            "Empresa", _opcoes,
+                            index=_opcoes.index(emp_atual) if emp_atual in _opcoes else 0,
+                            format_func=lambda x: x if x == _SEM else emp_nomes.get(x, x),
+                            key=f"emp_{uid}")
+                        novas_roles = st.multiselect("Perfis", _PERFIS,
+                            default=[r for r in roles if r in _PERFIS], key=f"roles_{uid}")
+                        nova_senha = st.text_input("Nova senha (opcional)", type="password",
+                                                   key=f"pwd_{uid}", placeholder="Mínimo 6 caracteres")
                         if st.button("Salvar", key=f"save_user_{uid}", type="primary"):
-                            for r in [r for r in roles if r not in novas_roles]:
-                                sb().table("user_roles").delete().eq("user_id", uid).eq("role", r).execute()
-                            for r in [r for r in novas_roles if r not in roles]:
-                                sb().table("user_roles").insert({"user_id": uid, "role": r}).execute()
-                            _dev_log("info", "usuario", f"Editou permissões de {row.get('nome','?')}",
-                                     {"roles": novas_roles})
-                            _notify("Permissões atualizadas!"); st.rerun()
+                            if nova_senha and len(nova_senha) < 6:
+                                st.error("A senha precisa ter no mínimo 6 caracteres.")
+                                st.stop()
+                            try:
+                                # Vínculo e perfis são sempre regravados juntos, na empresa escolhida
+                                sb().table("empresa_membros").delete().eq("user_id", uid).execute()
+                                sb().table("user_roles").delete().eq("user_id", uid).execute()
+                                if nova_emp != _SEM:
+                                    _rs = novas_roles or ["visualizador"]
+                                    sb().table("empresa_membros").insert(
+                                        {"user_id": uid, "empresa_id": nova_emp, "role": _rs[0]}).execute()
+                                    sb().table("user_roles").insert(
+                                        [{"user_id": uid, "role": r, "empresa_id": nova_emp} for r in _rs]).execute()
+                                if nova_senha:
+                                    sb().auth.admin.update_user_by_id(uid, {"password": nova_senha})
+                            except Exception as e:
+                                st.error(f"Erro ao salvar: {e}")
+                                st.stop()
+                            _dev_log("info", "usuario", f"Editou acesso de {row.get('nome','?')}",
+                                     {"empresa": emp_nomes.get(nova_emp), "roles": novas_roles,
+                                      "senha_alterada": bool(nova_senha)})
+                            _notify("Usuário atualizado!"); st.rerun()
 
     # ═══════════════════════════════════════════════════════════════════
     # TAB 3 — PARCERIAS
@@ -1120,6 +1268,8 @@ def pagina_dev_panel():
                     exp = g.get("expires_at")
                     cols[2].caption(f"Expira: {exp[:10] if exp else 'Indeterminado'}")
                     if cols[3].button("🔒 Revogar", key=f"revoke_{g['id']}"):
+                        _pedir_confirmacao(f"grant_{g['id']}")
+                    if _confirmou_exclusao(f"grant_{g['id']}", f"a parceria de {emp_nome}"):
                         sb().table("empresas").update({"is_partner": False}).eq("id", g["empresa_id"]).execute()
                         sb().table("dev_grants").delete().eq("id", g["id"]).execute()
                         _dev_log("warning", "parceria", f"Revogou parceria de {emp_nome}")
@@ -1241,6 +1391,8 @@ def pagina_dev_panel():
                             f"{'Ativou' if novo_val else 'Desativou'} toggle {t_row.get('feature_key','')} para {emp_nome_t}")
                         st.rerun()
                     if cols[3].button("🗑️", key=f"del_tog_{t_row['id']}"):
+                        _pedir_confirmacao(f"tog_{t_row['id']}")
+                    if _confirmou_exclusao(f"tog_{t_row['id']}", f"o toggle {t_row.get('feature_key','')}"):
                         sb().table("feature_toggles").delete().eq("id", t_row["id"]).execute()
                         st.rerun()
 
@@ -1290,8 +1442,10 @@ def pagina_dev_panel():
                 try:
                     from alertas import _enviar_email
                     ok = _enviar_email(
-                        assunto="[Prumo ERP] Teste do Painel do Desenvolvedor",
-                        corpo="Este é um e-mail de teste enviado do Painel do Desenvolvedor.\n\nSe você recebeu esta mensagem, a configuração de e-mail está funcionando corretamente."
+                        "[Prumo ERP] Teste do Painel do Desenvolvedor",
+                        "<p>Este é um e-mail de teste enviado do Painel do Desenvolvedor.</p>"
+                        "<p>Se você recebeu esta mensagem, a configuração de e-mail está funcionando.</p>",
+                        [email_to],
                     )
                     if ok:
                         _dev_log("info", "email", f"E-mail de teste enviado para {email_to}")
@@ -1473,16 +1627,8 @@ def _dash_alert_banner():
         if _n_est:  _partes.append(f"📦 {_n_est} insumo(s) em estoque crítico")
         st.warning(f"**⚠️ {_total_al} alerta(s) ativo(s):** " + " | ".join(_partes))
         _b1, _b2, _ = st.columns([1, 1, 4])
-        if _b1.button("📧 Enviar email de alertas", key="btn_enviar_alertas", type="primary"):
-            try:
-                import alertas as _alrt_send
-                ok = _alrt_send.enviar_resumo_alertas(_al_cache)
-                if ok:
-                    st.success("✅ Email de alertas enviado para ronneyramos123@gmail.com!")
-                else:
-                    st.error("❌ Erro ao enviar email. Verifique as credenciais no .env")
-            except Exception as _e_email:
-                st.error(f"❌ Erro: {_e_email}")
+        with _b1:
+            _enviar_alertas_ui(_al_cache, key="btn_enviar_alertas")
         if _b2.button("🔄 Rever alertas", key="btn_rever_alertas"):
             st.session_state["_alertas_verificados"] = False
             st.rerun()
@@ -1960,8 +2106,8 @@ def pagina_obras():
                             bdi = c2.number_input("BDI (%)",value=float(L.get("BDI (%)",25.0)),min_value=0.0,max_value=100.0,step=0.5)
                         else:
                             bdi = float(L.get("BDI (%)", 25.0))
-                        ini    = c1.text_input("Início",      value=L["Início"])
-                        term   = c2.text_input("Término",     value=L["Término"])
+                        ini    = campo_data("Início", L["Início"], container=c1)
+                        term   = campo_data("Término", L["Término"], opcional=True, container=c2)
                         pct    = c1.slider("% Físico",0,100,int(L["% Físico"]))
                         status_opts = ["Em andamento","Paralisada","Concluída","Planejamento","Cancelada"]
                         st_idx = status_opts.index(L["Status"]) if L["Status"] in status_opts else 0
@@ -1976,6 +2122,8 @@ def pagina_obras():
                         except Exception: st.warning("Obra salva localmente, mas falhou sincronização com servidor.")
                         _notify(f"✅ Obra **{nome}** atualizada com sucesso!"); st.rerun()
                     if excluir:
+                        _pedir_confirmacao(f"obra_{id_sel}")
+                    if _confirmou_exclusao(f"obra_{id_sel}", f"a obra {L['Nome']}"):
                         _nome_exc = L["Nome"]
                         uuid_exc = _sb_id(st.session_state.obras, id_sel)
                         st.session_state.obras = st.session_state.obras[st.session_state.obras["ID"]!=id_sel].reset_index(drop=True)
@@ -2068,11 +2216,11 @@ def pagina_obras():
         obra_med = st.selectbox("Obra *", obras_med, key="med_obra_sel")
         with st.form("form_medicao"):
             c1, c2 = st.columns(2)
-            periodo_med = c1.text_input("Período (mês/ano) *", value=date.today().strftime("%m/%Y"))
+            periodo_med = campo_mes("Período *", key="med_periodo", container=c1)
             pct_med_inp = c2.number_input("% Medido (acumulado da obra) *", min_value=0.0, max_value=100.0, step=0.5, value=0.0,
                                            help="Informe o % físico ACUMULADO total da obra até este período.")
             obs_med     = c1.text_input("Observação")
-            venc_med    = c2.text_input("Vencimento do BM", value=(date.today() + timedelta(days=15)).strftime("%d/%m/%Y"))
+            venc_med    = campo_data("Vencimento do BM", date.today() + timedelta(days=15), container=c2)
             ok_med = st.form_submit_button("📏 Registrar Medição", type="primary")
         if ok_med:
             if obra_med.startswith("("):
@@ -2143,8 +2291,8 @@ def pagina_obras():
                 bdi = c2.number_input("BDI (%)",min_value=0.0,max_value=100.0,value=25.0,step=0.5)
             else:
                 bdi = 25.0
-            ini    = c1.text_input("Início (dd/mm/aaaa)",value=date.today().strftime("%d/%m/%Y"))
-            term   = c2.text_input("Término (dd/mm/aaaa)")
+            ini    = campo_data("Início", date.today(), container=c1)
+            term   = campo_data("Término", opcional=True, container=c2)
             pct    = c1.slider("% Físico Inicial",0,100,0)
             stat   = c2.selectbox("Status",["Planejamento","Em andamento","Paralisada","Concluída","Cancelada"])
             ok = st.form_submit_button("➕ Cadastrar",type="primary")
@@ -2157,22 +2305,93 @@ def pagina_obras():
                 dados_nova = {"Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat,"Responsável":resp}
                 uuid_nova = sync.obra_save(dados_nova)
                 if not uuid_nova:
-                    try:
-                        from db import sb_admin
-                        admin = sb_admin()
-                        if admin:
-                            from sync import _empresa_id
-                            payload = dict(dados_nova)
-                            payload["empresa_id"] = _empresa_id()
-                            r2 = admin.table("obras").insert(payload).execute()
-                            uuid_nova = r2.data[0]["id"] if r2.data else None
-                    except Exception:
-                        pass
+                    st.error("Não foi possível salvar a obra no banco. Tente novamente.")
+                    st.stop()
                 st.session_state.obras = pd.concat([st.session_state.obras,pd.DataFrame([{"ID":_next_id(st.session_state.obras),"SB_ID":uuid_nova or "","Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat,"Responsável":resp}])],ignore_index=True)
                 _notify(f"✅ Obra **{nome}** cadastrada com sucesso!"); st.rerun()
 
 
 # ── Suprimentos ──────────────────────────────────────────────────────────────
+
+def _importar_xml_nfe(obra_nf: str):
+    """Upload do XML da NF-e → prévia → fornecedor + estoque + contas a pagar."""
+    import nfe
+    arq = st.file_uploader("XML da NF-e", type=["xml"], key="nfe_xml_upload",
+                           help="O arquivo .xml que o fornecedor envia junto com a nota.")
+    if not arq:
+        st.caption("O fornecedor, os itens, o valor e as parcelas são lidos do XML. "
+                   "Você só confere e confirma.")
+        return
+    try:
+        nota = nfe.ler_nfe(arq.getvalue())
+    except nfe.NFeInvalida as e:
+        st.error(f"❌ {e}")
+        return
+
+    doc = f"{nota.numero}/{nota.serie}" if nota.serie else nota.numero
+    c1, c2, c3 = st.columns(3)
+    c1.metric("NF-e", doc)
+    c2.metric("Emissão", nota.emissao.strftime("%d/%m/%Y"))
+    c3.metric("Valor total", _fmt(nota.valor_total))
+    st.markdown(f"**Fornecedor:** {nota.emitente_nome} — CNPJ {nfe.formatar_cnpj(nota.emitente_cnpj)}")
+
+    # Avisos que não impedem a importação
+    if not nota.autorizada:
+        st.warning("⚠️ Este XML não traz o protocolo de autorização da SEFAZ. "
+                   "Confira se a nota foi autorizada antes de pagar.")
+    try:
+        from db import sb
+        _cnpj_emp = (sb().table("empresas").select("cnpj").eq("id", st.session_state.get("empresa_id"))
+                     .execute().data or [{}])[0].get("cnpj")
+        if _cnpj_emp and nota.destinatario_cnpj and nfe.somente_digitos(_cnpj_emp) != nota.destinatario_cnpj:
+            st.warning(f"⚠️ O destinatário da nota (CNPJ {nfe.formatar_cnpj(nota.destinatario_cnpj)}) "
+                       "não é o CNPJ da sua empresa.")
+    except Exception:
+        pass
+
+    st.dataframe(pd.DataFrame([{
+        "Descrição": i.descricao, "Un": i.unidade, "Qtd": i.quantidade,
+        "Valor Unit.": _fmt(i.valor_unitario), "Total": _fmt(i.valor_total), "NCM": i.ncm,
+    } for i in nota.itens]), hide_index=True, width='stretch')
+
+    parcelas = nfe.parcelas_para_pagar(nota)
+    st.markdown("**Contas a pagar que serão criadas:** " + " · ".join(
+        f"{p.vencimento.strftime('%d/%m/%Y')} — {_fmt(p.valor)}" for p in parcelas)
+        + f" ({nota.forma_pagamento})")
+    if not nota.parcelas:
+        st.caption("A nota não tem duplicatas: será criada uma conta única com vencimento na data de emissão.")
+
+    obra_ok = _obra_valida(obra_nf)
+    entrada = st.checkbox(f"Dar entrada dos {len(nota.itens)} itens no estoque da obra **{obra_nf}**",
+                          value=obra_ok, disabled=not obra_ok, key="nfe_entrada_estoque")
+    if not obra_ok:
+        st.caption("Selecione uma obra acima para dar entrada no estoque.")
+
+    if nfe_ja := sync.nfe_ja_importada(nota.chave):
+        st.error("🚫 Esta NF-e já foi importada (existe conta a pagar com a mesma chave de acesso).")
+    if st.button("📥 Importar NF-e", type="primary", key="btn_importar_nfe", disabled=bool(nfe_ja)):
+        with st.spinner("Importando..."):
+            res = sync.importar_nfe(nota, _obra_uuid(obra_nf) if obra_ok else None, entrada)
+        contas_ok = [c for c in res["contas"] if c["SB_ID"]]
+        if not contas_ok:
+            st.error("❌ Não foi possível gravar as contas a pagar. Nada foi confirmado; tente novamente.")
+            return
+        # Recarrega tudo do banco (contas, estoque, fornecedores) na próxima execução
+        st.cache_data.clear()
+        st.session_state.pop("fornecedores", None)
+        st.session_state.pop("_erp_init_done", None)
+        partes = [f"{len(contas_ok)} conta(s) a pagar"]
+        if entrada:
+            partes.append(f"{res['itens_ok']} item(ns) no estoque")
+        if res["fornecedor_criado"]:
+            partes.append("fornecedor cadastrado")
+        _notify(f"✅ NF-e {doc} importada: " + ", ".join(partes) + "!")
+        if res["itens_falha"]:
+            st.session_state["_toast_pending"] = (
+                f"⚠️ NF-e importada, mas {len(res['itens_falha'])} item(ns) não entraram no estoque: "
+                + ", ".join(res["itens_falha"][:3]), "⚠️")
+        st.rerun()
+
 
 def pagina_suprimentos():
     import plotly.graph_objects as go
@@ -2306,7 +2525,7 @@ def pagina_suprimentos():
 
             ra, rb = st.columns(2)
             if ra.button("✅ Aprovar — dar saída no estoque", type="primary", key="btn_req_ap"):
-                usuario = st.session_state.get("user_email", "gestor")
+                usuario = (st.session_state.get("usuario") or {}).get("email") or "gestor"
                 # 1. Supabase
                 if sb_id_req:
                     try:
@@ -2341,18 +2560,30 @@ def pagina_suprimentos():
                                    "Quantidade": row_req.Quantidade, "Obra": row_req.Obra,
                                    "Responsável": row_req.Solicitante, "NF/Doc": "REQ"}])
                 ], ignore_index=True)
-                # 5. E-mail de notificação
+                # 4b. Persiste a saída no banco (antes só existia na sessão)
                 try:
-                    from alertas import _enviar_email
-                    if not _enviar_email(
-                        assunto=f"[Prumo ERP] Requisição Aprovada — {row_req.Insumo}",
-                        corpo=(f"Requisição aprovada por {usuario}.\n\n"
-                               f"Insumo: {row_req.Insumo}\nQuantidade: {row_req.Quantidade} {row_req.Unidade}\n"
-                               f"Obra: {row_req.Obra}\nSolicitante: {row_req.Solicitante}")
-                    ):
-                        st.warning("Requisição aprovada, mas falhou envio de e-mail.")
+                    _ok_req = sync.estoque_movimento_save(
+                        {"Insumo": row_req.Insumo, "Unidade": getattr(row_req, "Unidade", "un"),
+                         "Tipo": "Saída", "Quantidade": row_req.Quantidade,
+                         "Observação": f"REQ {row_req.ID} — {row_req.Solicitante}"},
+                        _obra_uuid(row_req.Obra) if _obra_valida(row_req.Obra) else None)
                 except Exception:
-                    st.warning("Requisição aprovada, mas falhou envio de e-mail.")
+                    _ok_req = False
+                if not _ok_req:
+                    _notify("⚠️ Requisição aprovada, mas a saída de estoque não foi gravada no banco.")
+                # 5. E-mail de notificação para os administradores da empresa
+                try:
+                    from alertas import _enviar_email, email_configurado
+                    _dest_req, _ = _destinatarios_alerta()
+                    if email_configurado() and _dest_req:
+                        _enviar_email(
+                            f"[Prumo ERP] Requisição Aprovada — {row_req.Insumo}",
+                            (f"<p>Requisição aprovada por {usuario}.</p>"
+                             f"<p><b>Insumo:</b> {row_req.Insumo}<br><b>Quantidade:</b> {row_req.Quantidade} {row_req.Unidade}"
+                             f"<br><b>Obra:</b> {row_req.Obra}<br><b>Solicitante:</b> {row_req.Solicitante}</p>"),
+                            _dest_req)
+                except Exception as _e_req_mail:
+                    print(f"[requisição] e-mail: {_e_req_mail}")
                 st.rerun()
             if rb.button("❌ Reprovar", key="btn_req_rep"):
                 if sb_id_req:
@@ -2463,13 +2694,15 @@ def pagina_suprimentos():
                                        "Responsável": resp_m, "NF/Doc": doc_m}])
                     ], ignore_index=True)
                     try:
-                        sync.estoque_movimento_save(
+                        _ok_mov = sync.estoque_movimento_save(
                             {"Insumo": insumo_m, "Unidade": _un_ref, "Tipo": "Saída",
                              "Quantidade": qtd_m, "Observação": doc_m},
                             _obra_uuid(obra_m) if _obra_valida(obra_m) else None
                         )
                     except Exception:
-                        st.warning("Movimento salvo localmente, mas falhou sincronização.")
+                        _ok_mov = False
+                    if not _ok_mov:
+                        _notify("⚠️ Movimento salvo localmente, mas falhou sincronização.")
                     st.success(
                         f"✅ Saída de **{qtd_m:.2f} {_un_ref}** de **{insumo_m}** registrada. "
                         f"Saldo restante em {obra_m}: **{novo_saldo:.2f} {_un_ref}**"
@@ -2502,13 +2735,15 @@ def pagina_suprimentos():
                                    "Responsável": resp_m, "NF/Doc": doc_m}])
                 ], ignore_index=True)
                 try:
-                    sync.estoque_movimento_save(
+                    _ok_mov = sync.estoque_movimento_save(
                         {"Insumo": insumo_m, "Unidade": _un_ref, "Tipo": "Entrada",
                          "Quantidade": qtd_m, "Observação": doc_m},
                         _obra_uuid(obra_m) if _obra_valida(obra_m) else None
                     )
                 except Exception:
-                    st.warning("Movimento salvo localmente, mas falhou sincronização.")
+                    _ok_mov = False
+                if not _ok_mov:
+                    _notify("⚠️ Movimento salvo localmente, mas falhou sincronização.")
                 st.rerun()
 
     elif aba == "📋 Cotações":
@@ -2521,12 +2756,14 @@ def pagina_suprimentos():
         tab_lista, tab_nova = st.tabs(["📋 Lista de Cotações", "➕ Nova Cotação"])
 
         with tab_nova:
+            # Fora do form para que as linhas de itens apareçam ao mudar a quantidade
+            qtd_itens = st.number_input("Quantidade de itens", min_value=1, max_value=50, value=1, step=1, key="qtd_itens_cot")
             with st.form("form_cotacao"):
                 c1, c2 = st.columns(2)
                 forn_opts = _uniq(st.session_state.fornecedores["Razão Social"]) if "fornecedores" in st.session_state and not st.session_state.fornecedores.empty else []
                 forn_c = c1.selectbox("Fornecedor *", forn_opts if forn_opts else [""])
                 obra_c = c2.selectbox("Obra", _obras_nomes())
-                data_c = c1.text_input("Data", value=date.today().strftime("%Y-%m-%d"))
+                data_c = campo_data("Data", date.today(), fmt=ISO, container=c1)
                 val_c = c2.text_input("Validade")
                 cond_c = c1.text_input("Condição Pagamento")
                 prazo_c = c2.number_input("Prazo Entrega (dias)", min_value=0, value=0, step=1)
@@ -2534,7 +2771,6 @@ def pagina_suprimentos():
 
                 st.markdown("##### Itens da Cotação")
                 st.caption("Adicione os itens com quantidade e preço")
-                qtd_itens = st.number_input("Quantidade de itens", min_value=1, max_value=50, value=1, step=1, key="qtd_itens_cot")
 
                 itens_data = []
                 for idx in range(int(qtd_itens)):
@@ -2557,7 +2793,7 @@ def pagina_suprimentos():
                     dados_c = {"Fornecedor": forn_c, "Obra": obra_c,
                                "Data": data_c, "Validade": val_c,
                                "Condição Pag.": cond_c, "Prazo Entrega": str(prazo_c),
-                               "Total (R$)": total, "Vencedora": "Não"}
+                               "Total (R$)": total, "Vencedora": "Não", "Observação": obs_c}
                     sb_id_c = cotacao_save(dados_c, itens_data)
                     st.session_state.cotacoes = pd.concat([
                         st.session_state.cotacoes,
@@ -2685,6 +2921,8 @@ def pagina_suprimentos():
                     fornecedor_save(novos_dados, sb_id=sb_id_f)
                     _notify(f"Fornecedor **{e_rz}** atualizado!"); st.rerun()
                 if del_f:
+                    _pedir_confirmacao(f"forn_{row_f['ID']}")
+                if _confirmou_exclusao(f"forn_{row_f['ID']}", f"o fornecedor {row_f['Razão Social']}"):
                     sb_id_f = _sb_id(st.session_state.fornecedores, row_f["ID"])
                     if sb_id_f: _forn_delete(sb_id_f)
                     st.session_state.fornecedores = st.session_state.fornecedores[
@@ -2739,9 +2977,10 @@ def pagina_suprimentos():
                             if rz.strip():
                                 dados_sub = {"Razão Social": rz, "Nome Fantasia": nf, "CNPJ": cnpj,
                                              "Contato": contato, "Telefone": tel, "Email": email,
-                                             "CREA/CA": crea, "Especialidades": esp, "Ativo": "Sim"}
-                                _sb_id = subempreiteiro_save(dados_sub)
-                                if _sb_id:
+                                             "CREA/CA": crea, "Especialidades": esp, "Ativo": "Sim",
+                                             "Endereço": ender, "Observações": obs}
+                                _sub_uuid = subempreiteiro_save(dados_sub)
+                                if _sub_uuid:
                                     st.session_state["_sub_form"] = False
                                     st.cache_data.clear()
                                     st.session_state.subempreiteiros_df = subempreiteiros_load()
@@ -2789,6 +3028,8 @@ def pagina_suprimentos():
                             st.session_state.subempreiteiros_df = subempreiteiros_load()
                             _notify("Subempreiteiro atualizado!"); st.rerun()
                         if del_sub:
+                            _pedir_confirmacao(f"sub_{row_sub['ID']}")
+                        if _confirmou_exclusao(f"sub_{row_sub['ID']}", f"o subempreiteiro {row_sub.get('Razão Social', '')}"):
                             sb_id_sub = _sb_id(st.session_state.subempreiteiros_df, row_sub["ID"])
                             if sb_id_sub:
                                 subempreiteiro_delete(sb_id_sub)
@@ -2858,6 +3099,8 @@ def pagina_suprimentos():
                         sel_ct = st.selectbox("Selecione o contrato",
                                               _contratos_df["Nº Contrato"].tolist(), key="sub_ct_del_sel")
                         if st.button("🗑️ Excluir Contrato", type="secondary"):
+                            _pedir_confirmacao("sub_contrato")
+                        if _confirmou_exclusao("sub_contrato", f"o contrato {sel_ct}"):
                             _match_ct_del = _contratos_df[_contratos_df["Nº Contrato"] == sel_ct]
                             if _match_ct_del.empty:
                                 st.warning("Contrato não encontrado.")
@@ -2912,6 +3155,7 @@ def pagina_suprimentos():
                                         "Valor Líquido": med_vl,
                                         "Data Pagamento": med_dp.isoformat() if med_dp else None,
                                         "Status": "aprovado" if med_val_aprov > 0 else "medido",
+                                        "Observações": med_obs,
                                     }
                                     subempreiteiro_medicao_save(dados_med)
                                     st.cache_data.clear()
@@ -2969,6 +3213,8 @@ def pagina_suprimentos():
                             ).tolist()
                             sel_doc_label = st.selectbox("Selecione o documento", _doc_labels, key="sub_doc_del_sel")
                             if st.button("🗑️ Excluir", type="secondary"):
+                                _pedir_confirmacao("sub_documento")
+                            if _confirmou_exclusao("sub_documento", f"o documento {sel_doc_label}"):
                                 _idx_doc = _doc_labels.index(sel_doc_label)
                                 row_doc = _docs_df.iloc[_idx_doc]
                                 sb_id_doc = _sb_id(_docs_df, row_doc["ID"])
@@ -2983,6 +3229,11 @@ def pagina_suprimentos():
 
         # Obra (fora do form para manter estado ao adicionar insumo)
         obra_nf = st.selectbox("Obra *", _obras_nomes(), key="nf_obra_sel")
+
+        with st.expander("📄 Importar XML da NF-e (preenche tudo automaticamente)", expanded=True):
+            _importar_xml_nfe(obra_nf)
+
+        st.markdown("##### ✍️ Ou digite a nota manualmente")
 
         # ── Seleção de insumo com cadastro dinâmico ───────────────────
         st.markdown("**Insumo ***")
@@ -3024,15 +3275,14 @@ def pagina_suprimentos():
             c1, c2, c3 = st.columns(3)
             forn_nf = c1.text_input("Fornecedor *")
             num_nf  = c2.text_input("Número da NF", value="NF-")
-            data_nf = c3.text_input("Data da NF", value=date.today().strftime("%d/%m/%Y"))
+            data_nf = campo_data("Data da NF", date.today(), container=c3)
             qtd_nf  = c1.number_input("Quantidade", min_value=0.001, step=1.0, value=1.0)
             un_nf   = c2.text_input("Unidade")
             obs_nf  = c3.text_input("Observação")
             st.markdown("**Dados Financeiros**")
             cf1, cf2, cf3 = st.columns(3)
             val_nf   = cf1.number_input("Valor Total da NF (R$)", min_value=0.0, step=100.0)
-            venc_nf  = cf2.text_input("Data de Vencimento",
-                                       value=(date.today() + timedelta(days=30)).strftime("%d/%m/%Y"))
+            venc_nf  = campo_data("Data de Vencimento", date.today() + timedelta(days=30), container=cf2)
             forma_nf = cf3.selectbox("Forma de Pagamento",
                                       ["Boleto", "PIX", "Transferência", "Cartão", "Cheque", "A definir"])
             ok_nf = st.form_submit_button("📥 Registrar Entrada + Gerar Conta a Pagar", type="primary")
@@ -3054,6 +3304,17 @@ def pagina_suprimentos():
                                    "Obra": obra_nf, "Responsável": forn_nf.strip(),
                                    "NF/Doc": num_nf}])
                 ], ignore_index=True)
+                try:
+                    _ok_mov_nf = sync.estoque_movimento_save(
+                        {"Insumo": insumo_final, "Unidade": un_nf or "un", "Tipo": "Entrada",
+                         "Quantidade": qtd_nf, "Custo Unit.": val_nf / qtd_nf if qtd_nf else None,
+                         "Observação": f"{num_nf} — {obs_nf}" if obs_nf.strip() else num_nf},
+                        _obra_uuid(obra_nf) if _obra_valida(obra_nf) else None
+                    )
+                except Exception:
+                    _ok_mov_nf = False
+                if not _ok_mov_nf:
+                    _notify("⚠️ Entrada de estoque salva localmente, mas falhou sincronização.")
                 # 2. Estoque — busca por Insumo + Obra para não misturar saldos entre obras
                 mask_e = (
                     (st.session_state.estoque["Insumo"] == insumo_final) &
@@ -3180,12 +3441,14 @@ def pagina_financeiro():
                                 _notify(f"✅ Status atualizado para **{ns_p}**!"); st.rerun()
                         with cb:
                             if st.button("🗑️ Excluir Lançamento", key="del_cp"):
-                                uuid_cp_del = _sb_id(st.session_state.contas_pagar, LP["ID"])
-                                st.session_state.contas_pagar = st.session_state.contas_pagar[
-                                    st.session_state.contas_pagar["ID"] != LP["ID"]
-                                ].reset_index(drop=True)
-                                if uuid_cp_del: sync.lancamento_delete(uuid_cp_del)
-                                _notify(f"✅ Lançamento excluído com sucesso!"); st.rerun()
+                                _pedir_confirmacao(f"cp_{LP['ID']}")
+                        if _confirmou_exclusao(f"cp_{LP['ID']}", f"a conta a pagar {LP.get('Descrição', '')} ({_fmt(LP.get('Valor (R$)', 0))})"):
+                            uuid_cp_del = _sb_id(st.session_state.contas_pagar, LP["ID"])
+                            st.session_state.contas_pagar = st.session_state.contas_pagar[
+                                st.session_state.contas_pagar["ID"] != LP["ID"]
+                            ].reset_index(drop=True)
+                            if uuid_cp_del: sync.lancamento_delete(uuid_cp_del)
+                            _notify("✅ Lançamento excluído com sucesso!"); st.rerun()
                 else:
                     # Ação em lote
                     cols_lote = st.columns([2, 2, 1])
@@ -3256,12 +3519,14 @@ def pagina_financeiro():
                                 _notify(f"✅ Status atualizado para **{ns_r}**!"); st.rerun()
                         with cb_r:
                             if st.button("🗑️ Excluir", key="del_cr"):
-                                uuid_cr_del = _sb_id(st.session_state.contas_receber, LR["ID"])
-                                st.session_state.contas_receber = st.session_state.contas_receber[
-                                    st.session_state.contas_receber["ID"] != LR["ID"]
-                                ].reset_index(drop=True)
-                                if uuid_cr_del: sync.lancamento_delete(uuid_cr_del)
-                                _notify(f"✅ Lançamento excluído com sucesso!"); st.rerun()
+                                _pedir_confirmacao(f"cr_{LR['ID']}")
+                        if _confirmou_exclusao(f"cr_{LR['ID']}", f"a conta a receber {LR.get('Descrição', '')} ({_fmt(LR.get('Valor (R$)', 0))})"):
+                            uuid_cr_del = _sb_id(st.session_state.contas_receber, LR["ID"])
+                            st.session_state.contas_receber = st.session_state.contas_receber[
+                                st.session_state.contas_receber["ID"] != LR["ID"]
+                            ].reset_index(drop=True)
+                            if uuid_cr_del: sync.lancamento_delete(uuid_cr_del)
+                            _notify("✅ Lançamento excluído com sucesso!"); st.rerun()
                 else:
                     # Ação em lote
                     cols_lote_r = st.columns([2, 2, 1])
@@ -3290,7 +3555,7 @@ def pagina_financeiro():
             contra  = c2.text_input("Fornecedor" if tipo_l=="Conta a Pagar" else "Cliente")
             desc_l  = c1.text_input("Descrição")
             val_l   = c2.number_input("Valor (R$)", min_value=0.0, step=100.0)
-            venc_l  = c1.text_input("Vencimento (dd/mm/aaaa)", value=date.today().strftime("%d/%m/%Y"))
+            venc_l  = campo_data("Vencimento", date.today(), container=c1)
             nf_l    = c2.text_input("NF / Documento", value="—")
             eap_item_id = None
             tipo_custo_l = None
@@ -3797,6 +4062,8 @@ def pagina_financeiro():
                             cc2.markdown(f"Transações: {row_conc.get('total_transacoes', 0)}")
                             cc3.markdown(f"Conciliadas: {row_conc.get('total_conciliadas', 0)}")
                             if cc4.button("🗑️", key=f"del_conc_{row_conc['id']}"):
+                                _pedir_confirmacao(f"conc_{row_conc['id']}")
+                            if _confirmou_exclusao(f"conc_{row_conc['id']}", "esta conciliação e todos os seus itens"):
                                 _conc_delete(row_conc["id"])
                                 st.rerun()
 
@@ -4087,7 +4354,7 @@ def pagina_pessoal():
                                     sal_f = c1.number_input("Salário / Valor (R$)", value=_to_num(_sf["Salário (R$)"]),step=100.0)
                                 else:
                                     sal_f = _to_num(_sf["Salário (R$)"])
-                                adm_f   = c2.text_input("Admissão", value=str(_sf.get("Admissão","") or ""))
+                                adm_f   = campo_data("Admissão", _sf.get("Admissão"), opcional=True, container=c2)
                                 sit_opts = ["Ativo","Férias","Afastado","Demitido"]
                                 sit_val = str(_sf.get("Situação","Ativo") or "Ativo")
                                 sit_f   = c1.selectbox("Situação", sit_opts,
@@ -4110,6 +4377,8 @@ def pagina_pessoal():
                                                        "Obra": obra_f}, sb_id=sb_uuid)
                                 _notify(f"✅ Dados de **{nome_f}** atualizados com sucesso!"); st.rerun()
                             if del_f:
+                                _pedir_confirmacao(f"func_{id_f}")
+                            if _confirmou_exclusao(f"func_{id_f}", f"o funcionário {nome_f}"):
                                 _nome_del_f = nome_f
                                 uuid_f_del = _sb_id(st.session_state.funcionarios, id_f)
                                 st.session_state.funcionarios = st.session_state.funcionarios[st.session_state.funcionarios["ID"]!=id_f].reset_index(drop=True)
@@ -4154,6 +4423,8 @@ def pagina_pessoal():
                             st.rerun()
                     st.markdown("---")
                     if st.button(f"🗑️ Excluir {n_sel_f} selecionados", type="secondary", key="bulk_del_func"):
+                        _pedir_confirmacao("func_lote")
+                    if _confirmou_exclusao("func_lote", f"{n_sel_f} funcionário(s): {', '.join(LF['Nome'].astype(str).head(3))}{'...' if n_sel_f > 3 else ''}"):
                         _removidos = []
                         for _, _rf in LF.iterrows():
                             _id_fd = _rf["ID"]
@@ -4203,7 +4474,7 @@ def pagina_pessoal():
             _ff_pt    = st.session_state.get("funcionarios", pd.DataFrame())
             _funcs_pt = _ff_pt["Nome"].tolist() if not _ff_pt.empty else ["(nenhum colaborador)"]
             func_p  = c1.selectbox("Funcionário", _funcs_pt)
-            data_p  = c2.text_input("Data", value=date.today().strftime("%d/%m/%Y"))
+            data_p  = campo_data("Data", date.today(), container=c2)
             tipo_p  = c1.selectbox("Tipo de Falta", ["Injustificada","Justificada","Atestado","Folga","Férias"])
             obra_p  = c2.selectbox("Obra", _obras_nomes(), key="obra_pt")
             obs_p   = c1.text_input("Observação")
@@ -4236,7 +4507,7 @@ def pagina_pessoal():
             c1, c2 = st.columns(2)
             _funcs_reg = _ff_pt["Nome"].tolist() if not _ff_pt.empty else ["(nenhum colaborador)"]
             func_reg  = c1.selectbox("Funcionário", _funcs_reg, key="ponto_reg_func")
-            data_reg  = c2.text_input("Data", value=date.today().strftime("%d/%m/%Y"), key="ponto_reg_data")
+            data_reg  = campo_data("Data", date.today(), container=c2, key="ponto_reg_data_dt")
             obra_reg  = c1.selectbox("Obra", _obras_nomes(), key="ponto_reg_obra")
             obs_reg   = c2.text_input("Observação", key="ponto_reg_obs")
             c3, c4, c5, c6 = st.columns(4)
@@ -4321,7 +4592,7 @@ def pagina_pessoal():
                 st.markdown("---")
                 st.subheader("📄 Exportar Folha de Pagamento (PDF)")
                 ob_pdf_folha = st.selectbox("Obra para exportar", ["Todas as Obras"] + _uniq(ff_all["Obra"]), key="folha_pdf_obra")
-                ref_pdf_folha = st.text_input("Mês de referência", value=date.today().strftime("%m/%Y"), key="folha_pdf_ref")
+                ref_pdf_folha = campo_mes("Mês de referência", key="folha_pdf_ref")
                 if st.button("📥 Gerar PDF da Folha", key="btn_gerar_folha", type="primary"):
                     try:
                         from gerar_pdf import gerar_folha_pagamento as _gerar_fp
@@ -4375,10 +4646,8 @@ def pagina_pessoal():
                 )
                 obras_folha_lanc = _obras_nomes()
                 ob_lanc = st.selectbox("Obra para lançamento", obras_folha_lanc, key="folha_ob_lanc")
-                ref_mes = st.text_input("Mês de referência", value=date.today().strftime("%m/%Y"),
-                                         key="folha_ref_mes")
-                venc_folha = st.text_input("Vencimento", key="folha_venc",
-                                            value=(date.today() + timedelta(days=5)).strftime("%d/%m/%Y"))
+                ref_mes = campo_mes("Mês de referência", key="folha_ref_mes")
+                venc_folha = campo_data("Vencimento", date.today() + timedelta(days=5), key="folha_venc_dt")
                 obra_uuid_folha = _obra_uuid(ob_lanc)
                 df_eap_folha = db.eap_itens_por_obra(obra_uuid_folha) if obra_uuid_folha else pd.DataFrame()
                 eap_opts_folha = [""] + [f"{r['codigo']} — {r['descricao']}" for _, r in df_eap_folha.iterrows()] if not df_eap_folha.empty else [""]
@@ -4454,7 +4723,7 @@ def pagina_pessoal():
             cont_nf  = c1.selectbox("Tipo de Contrato *", ["CLT","MEI","Empreiteiro","Autônomo","Diarista","Estagiário"])
             obra_nf  = c2.selectbox("Obra Alocada", _obras_nomes(["Sede","Todas"]))
             sal_nf   = c1.number_input("Salário / Valor (R$)", min_value=0.0, step=100.0)
-            adm_nf   = c2.text_input("Admissão", value=date.today().strftime("%d/%m/%Y"))
+            adm_nf   = campo_data("Admissão", date.today(), container=c2)
             sit_nf   = c1.selectbox("Situação", ["Ativo","Férias","Afastado","Demitido"])
             ok_nf    = st.form_submit_button("➕ Cadastrar", type="primary")
         if ok_nf:
@@ -4483,7 +4752,7 @@ def pagina_pessoal():
                 c1, c2 = st.columns(2)
                 func_opts = _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else []
                 func_f = c1.selectbox("Funcionário *", func_opts if func_opts else [""])
-                ini_f = c2.text_input("Data Início *", value=date.today().strftime("%Y-%m-%d"))
+                ini_f = campo_data("Data Início *", date.today(), fmt=ISO, container=c2)
                 dias_f = c1.number_input("Dias", min_value=1, max_value=30, value=30, step=1)
                 sal_f = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_f]["Salário (R$)"].iloc[0]) if func_f and not st.session_state.funcionarios.empty else 0
                 vb_f = c2.number_input("Valor Bruto (R$)", min_value=0.0, value=sal_f, step=100.0)
@@ -4564,7 +4833,7 @@ def pagina_pessoal():
                 c1, c2 = st.columns(2)
                 func_opts_r = _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else []
                 func_r = c1.selectbox("Funcionário *", func_opts_r if func_opts_r else [""])
-                data_r = c2.text_input("Data da Rescisão *", value=date.today().strftime("%Y-%m-%d"))
+                data_r = campo_data("Data da Rescisão *", date.today(), fmt=ISO, container=c2)
                 tipo_r = c1.selectbox("Tipo", ["Sem justa causa", "Com justa causa", "Pedido demissão", "Término contrato", "Acordo"])
                 aviso_r = c2.selectbox("Aviso Prévio", ["Trabalhado", "Indenizado", "Dispensado"])
                 sal_r = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_r]["Salário (R$)"].iloc[0]) if func_r and not st.session_state.funcionarios.empty else 0
@@ -4619,6 +4888,8 @@ def pagina_pessoal():
                         st.markdown(f"**Total Bruto:** {_fmt(float(row_r.get('Total Bruto',0)))}")
                         st.markdown(f"**Total Líquido:** {_fmt(float(row_r.get('Total Líquido',0)))}")
                         if st.button("🗑️ Excluir", key=f"del_resc_{row_r['ID']}"):
+                            _pedir_confirmacao(f"resc_{row_r['ID']}")
+                        if _confirmou_exclusao(f"resc_{row_r['ID']}", f"a rescisão de {row_r.get('Funcionário', '')}"):
                             sb_id_r = _sb_id(st.session_state.rescisoes, row_r["ID"])
                             if sb_id_r:
                                 from db import rescicao_atualizar
@@ -4759,7 +5030,7 @@ def pagina_qualidade():
             desc_nc  = c1.text_area("Descrição",height=80)
             acao_nc  = c2.text_area("Ação Corretiva",height=80)
             resp_nc  = c1.text_input("Responsável")
-            prazo_nc = c2.text_input("Prazo (dd/mm/aaaa)")
+            prazo_nc = campo_data("Prazo", opcional=True, container=c2)
             ok_nc    = st.form_submit_button("⚠️ Abrir NC",type="primary")
         if ok_nc:
             novo_id_nc = f"NC-{(len(st.session_state.ncs)+1):03d}"
@@ -5539,6 +5810,8 @@ def pagina_orcamento():
                             st.error("❌ Erro ao salvar orçamento no Supabase.")
 
         if st.button("🗑️ Limpar importação", key="btn_limpar"):
+            _pedir_confirmacao("orc_limpar")
+        if _confirmou_exclusao("orc_limpar", "a planilha importada (o que não foi salvo será perdido)"):
             st.session_state.orcamento_df_raw = None
             st.session_state.orcamento_mapped = None
             st.session_state.orcamento_nome   = None
@@ -5676,8 +5949,7 @@ def pagina_rdo():
             gf3, gf4, gf5 = st.columns(3)
             forn_cp  = gf3.text_input("Fornecedor/Prestador", value=resp_rdo or "Mão-de-obra direta",
                                        key="rdo_cp_forn")
-            venc_cp  = gf4.text_input("Vencimento", value=(date.today() + timedelta(days=30)).strftime("%d/%m/%Y"),
-                                       key="rdo_cp_venc")
+            venc_cp  = campo_data("Vencimento", date.today() + timedelta(days=30), container=gf4, key="rdo_cp_venc_dt")
             forma_cp = gf5.selectbox("Forma Pag.", ["Transferência", "Boleto", "Cheque", "Dinheiro", "Cartão"],
                                       key="rdo_cp_forma")
             obra_uuid_cp = _obra_uuid(obra_rdo) if _obra_valida(obra_rdo) else None
@@ -5720,9 +5992,9 @@ def pagina_rdo():
                         novo["SB_ID"] = sb_id_rdo
                         if fotos_upload:
                             for _foto in fotos_upload:
-                                _url = _s_rdo.upload_rdo_foto(sb_id_rdo, _foto, _foto.name)
-                                if _url:
-                                    urls_fotos.append({"nome": _foto.name, "url": _url})
+                                _path = _s_rdo.upload_rdo_foto(sb_id_rdo, _foto, _foto.name)
+                                if _path:
+                                    urls_fotos.append({"nome": _foto.name, "path": _path})
                             if urls_fotos:
                                 _s_rdo.rdo_update_fotos(sb_id_rdo, urls_fotos)
                                 novo["fotos"] = urls_fotos
@@ -5736,7 +6008,8 @@ def pagina_rdo():
                     valor_cp = st.session_state.get("rdo_cp_valor", 0.0)
                     forn_cp  = st.session_state.get("rdo_cp_forn", "Mão-de-obra direta")
                     cat_cp   = st.session_state.get("rdo_cp_cat", "Mão-de-obra")
-                    venc_cp  = st.session_state.get("rdo_cp_venc", "")
+                    _venc_dt = st.session_state.get("rdo_cp_venc_dt")  # date do seletor
+                    venc_cp  = _venc_dt.strftime("%d/%m/%Y") if _venc_dt else ""
                     forma_cp = st.session_state.get("rdo_cp_forma", "Transferência")
                     eap_id_cp = None
                     df_eap_cp = db.eap_itens_por_obra(obra_uuid) if (obra_uuid := _obra_uuid(obra_rdo)) else pd.DataFrame()
@@ -5904,7 +6177,7 @@ def pagina_rdo():
                                 except Exception: _fv = []
                             if not isinstance(_fv, list):
                                 _fv = []
-                            fotos_row = _fv
+                            fotos_row = sync.resolver_fotos(_fv)  # links temporários do bucket privado
                             if fotos_row:
                                 st.markdown("**📷 Relatório Fotográfico**")
                                 _cols_f = st.columns(min(len(fotos_row), 3))
@@ -6172,8 +6445,8 @@ def pagina_eap():
                 if desc and (di or dt):
                     kd = desc[:60]
                     _loaded[kd] = {
-                        "ini": _iso_to_br(str(di)) if di else "",
-                        "fim": _iso_to_br(str(dt)) if dt else "",
+                        "ini": sync._iso_to_br(str(di)) if di else "",
+                        "fim": sync._iso_to_br(str(dt)) if dt else "",
                         "desc": desc,
                     }
             if _loaded:
@@ -6194,10 +6467,8 @@ def pagina_eap():
                         ex = datas_obra.get(k, {})
                         c1_, c2_, c3_ = st.columns([4, 2, 2])
                         c1_.markdown(f"**{etapa[:55]}**")
-                        ini_ = c2_.text_input("Início",  value=ex.get("ini",""),
-                                              key=f"ini_{k}", placeholder="01/03/2026")
-                        fim_ = c3_.text_input("Término", value=ex.get("fim",""),
-                                              key=f"fim_{k}", placeholder="31/05/2026")
+                        ini_ = campo_data("Início", ex.get("ini"), opcional=True, container=c2_, key=f"ini_dt_{k}")
+                        fim_ = campo_data("Término", ex.get("fim"), opcional=True, container=c3_, key=f"fim_dt_{k}")
                         novas_datas[k] = {"ini": ini_, "fim": fim_, "desc": etapa}
                     ok_dt = st.form_submit_button("💾 Salvar Datas", type="primary")
                 if ok_dt:
@@ -6558,6 +6829,8 @@ def pagina_medicao():
                 mid = med_opts[sel_label]
                 row_m = df_med_obra[df_med_obra["SB_ID"] == mid].iloc[0]
                 if st.button("🗑️ Excluir esta medição", key="med_del", type="secondary"):
+                    _pedir_confirmacao(f"med_{mid}")
+                if _confirmou_exclusao(f"med_{mid}", f"a medição {sel_label}"):
                     if sync.medicao_delete(mid):
                         sync.medicoes_load.clear()
                         st.rerun()
@@ -6582,9 +6855,7 @@ def pagina_relatorios():
     with tab_ger:
         st.markdown("##### Relatório Gerencial Mensal — consolidado de todas as obras")
         rg_c1, rg_c2 = st.columns([3, 1])
-        mes_ref = rg_c1.text_input("Mês de referência",
-            value=date.today().strftime("%B/%Y"), key="rg_mes_ref2",
-            placeholder="Junho/2026")
+        mes_ref = campo_mes("Mês de referência", extenso=True, key="rg_mes_ref2", container=rg_c1)
         if rg_c2.button("📥 Gerar PDF", key="btn_gerar_rg2", type="primary", width='stretch'):
             try:
                 from gerar_pdf import gerar_relatorio_gerencial as _gerar_rg
@@ -6620,7 +6891,7 @@ def pagina_relatorios():
         st.markdown("##### Relatório Financeiro — Contas a Pagar / Receber")
         fin_c1, fin_c2 = st.columns(2)
         obra_fin = fin_c1.selectbox("Obra", ["Todas"] + obras_lista, key="rel_fin_obra")
-        mes_fin  = fin_c2.text_input("Mês de referência", value=date.today().strftime("%m/%Y"), key="rel_fin_mes")
+        mes_fin  = campo_mes("Mês de referência", key="rel_fin_mes", container=fin_c2)
         cp = st.session_state.contas_pagar.copy()
         cr = st.session_state.contas_receber.copy()
         if obra_fin != "Todas":
@@ -6674,17 +6945,20 @@ def pagina_relatorios():
     with tab_rdo:
         st.markdown("##### Relatório de Diários de Obra")
         rdo_obra = st.selectbox("Obra", ["Todas"] + obras_lista, key="rel_rdo_obra")
-        rdo_desde = st.text_input("Data inicial (dd/mm/aaaa)", key="rel_rdo_desde")
-        rdo_ate   = st.text_input("Data final (dd/mm/aaaa)",   key="rel_rdo_ate")
+        rdo_desde = campo_data("Data inicial", opcional=True, key="rel_rdo_desde_dt")
+        rdo_ate   = campo_data("Data final", opcional=True, key="rel_rdo_ate_dt")
         df_rdo_r = st.session_state.rdo.copy()
         if rdo_obra != "Todas":
             df_rdo_r = df_rdo_r[df_rdo_r["Obra"] == rdo_obra]
-        if rdo_desde and rdo_ate:
-            try:
-                mask = (df_rdo_r["Data"] >= rdo_desde) & (df_rdo_r["Data"] <= rdo_ate)
-                df_rdo_r = df_rdo_r[mask]
-            except Exception:
-                pass
+        if rdo_desde or rdo_ate:
+            # Compara como data: texto "dd/mm/aaaa" não ordena corretamente
+            _dt_rdo = pd.to_datetime(df_rdo_r["Data"], dayfirst=True, errors="coerce")
+            mask = pd.Series(True, index=df_rdo_r.index)
+            if rdo_desde:
+                mask &= _dt_rdo >= pd.to_datetime(rdo_desde, dayfirst=True)
+            if rdo_ate:
+                mask &= _dt_rdo <= pd.to_datetime(rdo_ate, dayfirst=True)
+            df_rdo_r = df_rdo_r[mask]
         if df_rdo_r.empty:
             st.info("Nenhum RDO encontrado.")
         else:
@@ -6768,20 +7042,12 @@ def pagina_notificacoes():
 
     with tab_config:
         st.markdown("##### Disparo de Notificações por Email")
-        st.caption("Configurado via variáveis de ambiente (ALERT_EMAIL_FROM, ALERT_EMAIL_PASSWORD, ALERT_EMAIL_TO)")
-        from_env = os.environ.get("ALERT_EMAIL_TO", "não configurado")
-        st.code(f"Destinatário: {from_env}", language="text")
+        _dest, _ = _destinatarios_alerta()
+        st.caption("Os alertas vão para os administradores da empresa e para o e-mail cadastrado da empresa.")
+        st.code("Destinatários: " + (", ".join(_dest) if _dest else "nenhum"), language="text")
         re1, re2 = st.columns(2)
-        if re1.button("📧 Enviar resumo de alertas agora", type="primary", key="notif_send"):
-            try:
-                import alertas as _alrt_s
-                ok = _alrt_s.enviar_resumo_alertas(_al_cache)
-                if ok:
-                    st.success("✅ Email enviado!")
-                else:
-                    st.warning("Nenhum alerta ou erro no envio.")
-            except Exception as _e_s:
-                st.error(f"❌ {_e_s}")
+        with re1:
+            _enviar_alertas_ui(_al_cache, key="notif_send")
         if re2.button("🔄 Re-verificar alertas", key="notif_recheck"):
             st.session_state["_alertas_verificados"] = False
             st.rerun()
@@ -7012,6 +7278,7 @@ def pagina_portal_contratante():
                     # Fotos
                     fotos = rdo_row.get("fotos", []) or rdo_row.get("Fotos", [])
                     if isinstance(fotos, list) and fotos:
+                        fotos = sync.resolver_fotos(fotos[:4])
                         st.markdown("**Fotos:**")
                         fcols = st.columns(min(len(fotos), 4))
                         for fi, foto in enumerate(fotos[:4]):
@@ -7399,7 +7666,7 @@ def app():
 
     # ── Pós-login: admin escolhe App ou Dev; demais vão direto pro App ────
     if "modo" not in st.session_state:
-        if _role() == "admin":
+        if _is_plataforma_admin():
             _pos_login_choice()
             st.stop()
         st.session_state.modo = "app"
@@ -7475,7 +7742,7 @@ def app():
             st.session_state.pagina_atual = pag
             st.rerun()
     st.sidebar.markdown("---")
-    if _role() == "admin" and st.session_state.get("modo") == "dev":
+    if _is_plataforma_admin() and st.session_state.get("modo") == "dev":
         tipo_dev = "primary" if st.session_state.pagina_atual == "Desenvolvedor" else "secondary"
         if st.sidebar.button("🛠️ Desenvolvedor", width='stretch', type=tipo_dev):
             st.session_state.pagina_atual = "Desenvolvedor"
@@ -7489,18 +7756,24 @@ def app():
     st.sidebar.caption(f"📅 Hoje: {date.today().strftime('%d/%m/%Y')}")
     if st.sidebar.button("🔄 Atualizar dados", key="btn_refresh", width='stretch'):
         # Preserva autenticação mas força reload dos dados
-        _auth_keys = {k: st.session_state[k] for k in ["usuario","usuario_role","usuario_obras_ids","empresa_id"] if k in st.session_state}
+        from db import _SESSION_KEY
+        _auth_keys = {k: st.session_state[k] for k in
+                      ["usuario", "usuario_role", "usuario_obras_ids", "empresa_id", "modo",
+                       "plataforma_admin", "_dev_bypass", _SESSION_KEY]
+                      if k in st.session_state}
         st.session_state.clear()
         st.session_state.update(_auth_keys)
+        st.cache_data.clear()
         st.rerun()
     if st.sidebar.button("🚪 Sair", key="btn_logout", width='stretch'):
-        for k in ["usuario", "usuario_role", "usuario_obras_ids", "_erp_init_done"]:
-            st.session_state.pop(k, None)
         try:
-            from db import sb
-            sb().auth.sign_out()
+            from db import _SESSION_KEY
+            _cli = st.session_state.get(_SESSION_KEY)
+            if _cli is not None:
+                _cli.auth.sign_out()
         except Exception:
             pass
+        st.session_state.clear()  # nada da sessão anterior sobrevive ao logout
         st.rerun()
 
     p = st.session_state.pagina_atual
@@ -7519,7 +7792,7 @@ def app():
         elif p == "Orçamento":          pagina_orcamento()
         elif p == "Planejamento (EAP)": pagina_eap()
         elif p == "Administração":      pagina_admin()
-        elif p == "Desenvolvedor":       pagina_dev_panel()
+        elif p == "Desenvolvedor" and _is_plataforma_admin(): pagina_dev_panel()
     except st.runtime.scriptrunner.RerunException:
         raise  # deixa st.rerun() funcionar normalmente
     except Exception as _page_err:

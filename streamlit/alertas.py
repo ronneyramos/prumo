@@ -1,6 +1,8 @@
 """
-Sistema de alertas por email para o ERP MBR Engenharia.
-Envia notificações via Gmail SMTP sobre vencimentos, NCs e estoque crítico.
+Alertas por e-mail do Prumo ERP (vencimentos, NCs e estoque crítico).
+
+A conta remetente (ALERT_EMAIL_FROM/PASSWORD) é da plataforma; os
+destinatários são sempre da empresa logada (admins + e-mail da empresa).
 """
 import os, smtplib, traceback
 from email.mime.multipart import MIMEMultipart
@@ -13,23 +15,27 @@ load_dotenv()
 
 _FROM  = os.environ.get("ALERT_EMAIL_FROM", "")
 _PASS  = os.environ.get("ALERT_EMAIL_PASSWORD", "")
-_TO    = os.environ.get("ALERT_EMAIL_TO", "")
 
 
-def _enviar_email(assunto: str, corpo_html: str) -> bool:
+def email_configurado() -> bool:
+    return bool(_FROM and _PASS)
+
+
+def _enviar_email(assunto: str, corpo_html: str, destinatarios: list[str]) -> bool:
     """Envia email via Gmail SMTP. Retorna True se enviou com sucesso."""
-    if not _FROM or not _PASS or not _TO:
-        print("[alertas] Credenciais de email não configuradas.")
+    destinatarios = [d for d in dict.fromkeys(destinatarios or []) if d and "@" in d]
+    if not email_configurado() or not destinatarios:
+        print("[alertas] Remetente não configurado ou sem destinatários.")
         return False
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = assunto
-        msg["From"]    = f"ERP MBR <{_FROM}>"
-        msg["To"]      = _TO
+        msg["From"]    = f"Prumo ERP <{_FROM}>"
+        msg["To"]      = ", ".join(destinatarios)
         msg.attach(MIMEText(corpo_html, "html", "utf-8"))
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as srv:
             srv.login(_FROM, _PASS)
-            srv.sendmail(_FROM, _TO, msg.as_string())
+            srv.sendmail(_FROM, destinatarios, msg.as_string())
         return True
     except Exception:
         print(f"[alertas] Erro ao enviar email:\n{traceback.format_exc()}")
@@ -66,7 +72,7 @@ def verificar_alertas(contas_pagar: pd.DataFrame,
         cp["_venc_dt"] = pd.to_datetime(cp["Vencimento"], dayfirst=True, errors="coerce").dt.date
         cp["_valor"]   = cp["Valor (R$)"].apply(_to_num) if "Valor (R$)" in cp.columns else 0.0
         status_col = cp["Status"].fillna("Pendente").str.lower() if "Status" in cp.columns else pd.Series(["pendente"]*len(cp))
-        pendentes = cp[status_col.isin(["pendente","a pagar","a vencer",""])]
+        pendentes = cp[status_col.isin(["pendente","a pagar","a vencer","vencido",""])]
         criticos  = pendentes[pendentes["_venc_dt"].notna() & (pendentes["_venc_dt"] <= em_7_dias)]
         for _, r in criticos.iterrows():
             venc = r["_venc_dt"]
@@ -102,8 +108,8 @@ def verificar_alertas(contas_pagar: pd.DataFrame,
 
     # ── Estoque crítico (saldo ≤ mínimo) ─────────────────────────────────────
     if estoque is not None and not estoque.empty:
-        col_saldo = next((c for c in ["Saldo Atual", "Quantidade", "saldo_atual"] if c in estoque.columns), None)
-        col_min   = next((c for c in ["Saldo Mínimo", "Mínimo", "estoque_minimo"] if c in estoque.columns), None)
+        col_saldo = next((c for c in ["Estoque Atual", "Saldo Atual", "Quantidade", "saldo_atual"] if c in estoque.columns), None)
+        col_min   = next((c for c in ["Estoque Mínimo", "Saldo Mínimo", "Mínimo", "estoque_minimo"] if c in estoque.columns), None)
         if col_saldo and col_min:
             est = estoque.copy()
             est["_saldo"] = est[col_saldo].apply(_to_num)
@@ -120,7 +126,7 @@ def verificar_alertas(contas_pagar: pd.DataFrame,
     return alertas
 
 
-def enviar_resumo_alertas(alertas: dict) -> bool:
+def enviar_resumo_alertas(alertas: dict, destinatarios: list[str], empresa_nome: str = "") -> bool:
     """Monta o HTML e envia o email de resumo de alertas."""
     total = sum(len(v) for v in alertas.values())
     if total == 0:
@@ -137,7 +143,7 @@ def enviar_resumo_alertas(alertas: dict) -> bool:
     html = f"""
     <html><body style='font-family:Arial,sans-serif;color:#333;max-width:700px;margin:auto'>
     <div style='background:#2B59C3;padding:20px;border-radius:8px 8px 0 0'>
-      <h1 style='color:white;margin:0;font-size:22px'>&#9888;&#65039; ERP MBR &mdash; Alertas do dia {hoje_str}</h1>
+      <h1 style='color:white;margin:0;font-size:22px'>&#9888;&#65039; {empresa_nome or 'Prumo ERP'} &mdash; Alertas do dia {hoje_str}</h1>
       <p style='color:#c8d8f8;margin:4px 0 0'>{total} item(ns) requer(em) aten&ccedil;&atilde;o</p>
     </div>
     <div style='background:#f8f9fa;padding:20px;border-radius:0 0 8px 8px'>
@@ -181,11 +187,11 @@ def enviar_resumo_alertas(alertas: dict) -> bool:
 
     html += """
     <p style='color:#888;font-size:12px;margin-top:20px;border-top:1px solid #ddd;padding-top:12px'>
-      Este email foi gerado automaticamente pelo ERP MBR Engenharia.<br>
+      Este email foi gerado automaticamente pelo Prumo ERP.<br>
       Acesse o sistema para tomar as provid&ecirc;ncias necess&aacute;rias.
     </p>
     </div></body></html>
     """
 
-    assunto = f"ERP MBR - {total} alerta(s) em {date.today().strftime('%d/%m/%Y')}"
-    return _enviar_email(assunto, html)
+    assunto = f"{empresa_nome or 'Prumo ERP'} - {total} alerta(s) em {date.today().strftime('%d/%m/%Y')}"
+    return _enviar_email(assunto, html, destinatarios)
