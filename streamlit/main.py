@@ -324,6 +324,7 @@ def _auth_login():
     """Tela de login fiel ao mockup: fundo bege, split, imagem."""
     if "auth_mode" not in st.session_state:
         st.session_state.auth_mode = "login"
+    _show_toast()  # ex.: "senha alterada" vindo da recuperação
 
     st.markdown("""<style>
         :root { --primary-color: #1B3A5E !important; }
@@ -435,7 +436,6 @@ def _auth_login():
 
             st.markdown("""
             <div style="text-align:center;margin-top:14px;">
-                <p style="font-size:13px;color:#6B7280;margin:0 0 6px;">Esqueceu a senha?</p>
                 <p style="font-size:13px;color:#6B7280;margin:0;">
                     Ainda não tem conta?
                     <strong style="color:#1B3A5E;cursor:pointer;">Solicite uma demonstração</strong>
@@ -444,8 +444,12 @@ def _auth_login():
             </div>
             """, unsafe_allow_html=True)
 
-            if st.button("Criar conta gratuita →", key="btn_ir_cadastro", width='content'):
+            _b1, _b2 = st.columns(2)
+            if _b1.button("Criar conta gratuita →", key="btn_ir_cadastro", width='content'):
                 st.session_state.auth_mode = "cadastro"
+                st.rerun()
+            if _b2.button("Esqueci minha senha", key="btn_ir_recuperar", width='content'):
+                st.session_state.auth_mode = "recuperar"
                 st.rerun()
 
             st.markdown("<br>", unsafe_allow_html=True)
@@ -534,6 +538,72 @@ def _auth_login():
                 else:
                     st.session_state.usuario_obras_ids = []
                 set_user_client(cli)
+                st.rerun()
+
+        elif st.session_state.auth_mode == "recuperar":  # ── Recuperar senha ──────
+            # Fluxo por código: o e-mail "Reset Password" do Supabase precisa
+            # conter {{ .Token }} (código de 6 dígitos). Links com #token não
+            # funcionam no Streamlit, que não lê o fragmento da URL.
+            st.markdown("""
+            <div style="margin-bottom:1.4rem;">
+                <div style="font-size:1.4rem;font-weight:900;color:#1B3A5E;text-transform:uppercase;">
+                    RECUPERAR SENHA
+                </div>
+                <div style="font-size:0.85rem;color:#6B7280;margin-top:4px;">
+                    Enviaremos um código de 6 dígitos para o seu e-mail
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            _rec_email = st.session_state.get("_rec_email")
+            if not _rec_email:
+                with st.form("form_rec_email"):
+                    email_rec = st.text_input("E-mail", placeholder="seu@email.com")
+                    enviar = st.form_submit_button("ENVIAR CÓDIGO", width='stretch')
+                if enviar:
+                    if not email_rec.strip():
+                        st.error("Informe o e-mail.")
+                    else:
+                        try:
+                            from db import new_anon_client
+                            new_anon_client().auth.reset_password_for_email(email_rec.strip())
+                        except Exception as _e_rec:
+                            print(f"[recuperar] envio: {_e_rec}")  # não revela se o e-mail existe
+                        st.session_state._rec_email = email_rec.strip()
+                        st.rerun()
+            else:
+                st.info(f"Se **{_rec_email}** estiver cadastrado, você vai receber um código em "
+                        "alguns minutos. Confira também o spam.")
+                with st.form("form_rec_codigo"):
+                    codigo    = st.text_input("Código recebido por e-mail", max_chars=10)
+                    nova      = st.text_input("Nova senha", type="password", placeholder="Mínimo 6 caracteres")
+                    nova_conf = st.text_input("Repita a nova senha", type="password")
+                    salvar    = st.form_submit_button("SALVAR NOVA SENHA", width='stretch')
+                if salvar:
+                    if len(nova) < 6:
+                        st.error("A senha precisa ter no mínimo 6 caracteres.")
+                    elif nova != nova_conf:
+                        st.error("As senhas não conferem.")
+                    else:
+                        try:
+                            from db import new_anon_client
+                            _cli_rec = new_anon_client()
+                            _cli_rec.auth.verify_otp({"email": _rec_email, "token": codigo.strip(),
+                                                      "type": "recovery"})
+                            _cli_rec.auth.update_user({"password": nova})
+                            _cli_rec.auth.sign_out()
+                            st.session_state.pop("_rec_email", None)
+                            st.session_state.auth_mode = "login"
+                            _notify("✅ Senha alterada! Entre com a nova senha.")
+                            st.rerun()
+                        except Exception as _e_cod:
+                            print(f"[recuperar] código: {_e_cod}")
+                            st.error("Código inválido ou expirado. Peça um novo código.")
+                if st.button("Enviar outro código", key="btn_rec_reenviar"):
+                    st.session_state.pop("_rec_email", None)
+                    st.rerun()
+            if st.button("← Voltar ao login", key="btn_rec_voltar"):
+                st.session_state.pop("_rec_email", None)
+                st.session_state.auth_mode = "login"
                 st.rerun()
 
         else:  # ── Criar conta ──────────────────────────────────────────────
@@ -1040,37 +1110,67 @@ def pagina_dev_panel():
     # TAB 2 — USUÁRIOS
     # ═══════════════════════════════════════════════════════════════════
     with tab_users:
+        _PERFIS = ["admin","engenheiro","financeiro","suprimentos","qualidade","rh","visualizador","gestor","contratante"]
         try:
             profiles = sb().table("profiles").select("id, nome, email, created_at").order("created_at").execute()
             roles_raw = sb().table("user_roles").select("user_id, role").execute()
+            membros_raw = sb().table("empresa_membros").select("user_id, empresa_id").execute()
+            emps_raw = sb().table("empresas").select("id, nome").order("nome").execute()
             df_profiles = pd.DataFrame(profiles.data or [])
-            df_roles = pd.DataFrame(roles_raw.data or [])
+            df_roles = pd.DataFrame(roles_raw.data or [], columns=["user_id", "role"])
             roles_map = df_roles.groupby("user_id")["role"].apply(list).to_dict()
+            membro_map = {m["user_id"]: m["empresa_id"] for m in (membros_raw.data or [])}
+            emp_nomes = {e["id"]: e["nome"] for e in (emps_raw.data or [])}
         except Exception as e:
-            st.error(f"Erro: {e}"); df_profiles = pd.DataFrame(); roles_map = {}
+            st.error(f"Erro: {e}"); df_profiles = pd.DataFrame(); roles_map = {}; membro_map = {}; emp_nomes = {}
 
         if df_profiles.empty:
             st.info("Nenhum usuário.")
         else:
+            _SEM = "— sem empresa (sem acesso) —"
             for _, row in df_profiles.iterrows():
                 uid = row["id"]; roles = roles_map.get(uid, [])
+                emp_atual = membro_map.get(uid)
                 with st.container(border=True):
-                    cols = st.columns([3, 2, 2])
+                    cols = st.columns([3, 3, 2, 2])
                     cols[0].markdown(f"**{row.get('nome','?')}**")
                     cols[1].markdown(f"`{row.get('email','')}`")
-                    cols[2].markdown(" / ".join(roles) if roles else "—")
+                    cols[2].markdown(emp_nomes.get(emp_atual, "🚫 sem empresa"))
+                    cols[3].markdown(" / ".join(roles) if roles else "—")
                     with st.popover("✏️", key=f"edit_user_{uid}"):
-                        novas_roles = st.multiselect("Perfis",
-                            ["admin","engenheiro","financeiro","suprimentos","qualidade","rh","visualizador","gestor","contratante"],
-                            default=roles, key=f"roles_{uid}")
+                        _opcoes = [_SEM] + list(emp_nomes.keys())
+                        nova_emp = st.selectbox(
+                            "Empresa", _opcoes,
+                            index=_opcoes.index(emp_atual) if emp_atual in _opcoes else 0,
+                            format_func=lambda x: x if x == _SEM else emp_nomes.get(x, x),
+                            key=f"emp_{uid}")
+                        novas_roles = st.multiselect("Perfis", _PERFIS,
+                            default=[r for r in roles if r in _PERFIS], key=f"roles_{uid}")
+                        nova_senha = st.text_input("Nova senha (opcional)", type="password",
+                                                   key=f"pwd_{uid}", placeholder="Mínimo 6 caracteres")
                         if st.button("Salvar", key=f"save_user_{uid}", type="primary"):
-                            for r in [r for r in roles if r not in novas_roles]:
-                                sb().table("user_roles").delete().eq("user_id", uid).eq("role", r).execute()
-                            for r in [r for r in novas_roles if r not in roles]:
-                                sb().table("user_roles").insert({"user_id": uid, "role": r}).execute()
-                            _dev_log("info", "usuario", f"Editou permissões de {row.get('nome','?')}",
-                                     {"roles": novas_roles})
-                            _notify("Permissões atualizadas!"); st.rerun()
+                            if nova_senha and len(nova_senha) < 6:
+                                st.error("A senha precisa ter no mínimo 6 caracteres.")
+                                st.stop()
+                            try:
+                                # Vínculo e perfis são sempre regravados juntos, na empresa escolhida
+                                sb().table("empresa_membros").delete().eq("user_id", uid).execute()
+                                sb().table("user_roles").delete().eq("user_id", uid).execute()
+                                if nova_emp != _SEM:
+                                    _rs = novas_roles or ["visualizador"]
+                                    sb().table("empresa_membros").insert(
+                                        {"user_id": uid, "empresa_id": nova_emp, "role": _rs[0]}).execute()
+                                    sb().table("user_roles").insert(
+                                        [{"user_id": uid, "role": r, "empresa_id": nova_emp} for r in _rs]).execute()
+                                if nova_senha:
+                                    sb().auth.admin.update_user_by_id(uid, {"password": nova_senha})
+                            except Exception as e:
+                                st.error(f"Erro ao salvar: {e}")
+                                st.stop()
+                            _dev_log("info", "usuario", f"Editou acesso de {row.get('nome','?')}",
+                                     {"empresa": emp_nomes.get(nova_emp), "roles": novas_roles,
+                                      "senha_alterada": bool(nova_senha)})
+                            _notify("Usuário atualizado!"); st.rerun()
 
     # ═══════════════════════════════════════════════════════════════════
     # TAB 3 — PARCERIAS
@@ -5735,9 +5835,9 @@ def pagina_rdo():
                         novo["SB_ID"] = sb_id_rdo
                         if fotos_upload:
                             for _foto in fotos_upload:
-                                _url = _s_rdo.upload_rdo_foto(sb_id_rdo, _foto, _foto.name)
-                                if _url:
-                                    urls_fotos.append({"nome": _foto.name, "url": _url})
+                                _path = _s_rdo.upload_rdo_foto(sb_id_rdo, _foto, _foto.name)
+                                if _path:
+                                    urls_fotos.append({"nome": _foto.name, "path": _path})
                             if urls_fotos:
                                 _s_rdo.rdo_update_fotos(sb_id_rdo, urls_fotos)
                                 novo["fotos"] = urls_fotos
@@ -5919,7 +6019,7 @@ def pagina_rdo():
                                 except Exception: _fv = []
                             if not isinstance(_fv, list):
                                 _fv = []
-                            fotos_row = _fv
+                            fotos_row = sync.resolver_fotos(_fv)  # links temporários do bucket privado
                             if fotos_row:
                                 st.markdown("**📷 Relatório Fotográfico**")
                                 _cols_f = st.columns(min(len(fotos_row), 3))
@@ -7027,6 +7127,7 @@ def pagina_portal_contratante():
                     # Fotos
                     fotos = rdo_row.get("fotos", []) or rdo_row.get("Fotos", [])
                     if isinstance(fotos, list) and fotos:
+                        fotos = sync.resolver_fotos(fotos[:4])
                         st.markdown("**Fotos:**")
                         fcols = st.columns(min(len(fotos), 4))
                         for fi, foto in enumerate(fotos[:4]):

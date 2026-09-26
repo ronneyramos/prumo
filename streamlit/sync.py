@@ -1021,24 +1021,55 @@ def rdo_save(dados: dict, sb_id: str | None = None) -> str | None:
         return None
 
 
+_BUCKET_FOTOS = "rdo-fotos"
+
+
 def upload_rdo_foto(rdo_id: str, arquivo, filename: str) -> str | None:
-    """Faz upload de uma foto para o bucket rdo-fotos e retorna a URL pública."""
+    """Envia a foto para o bucket privado rdo-fotos e retorna o caminho do arquivo.
+
+    O caminho começa com o empresa_id: a policy do Storage só deixa cada
+    empresa ler/gravar na própria pasta.
+    """
     import uuid as _uuid
     try:
         from db import sb
+        eid = _empresa_id()
+        if not eid:
+            return None
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
-        path = f"rdo/{rdo_id}/{_uuid.uuid4().hex}.{ext}"
+        path = f"{eid}/rdo/{rdo_id}/{_uuid.uuid4().hex}.{ext}"
         content = arquivo.read() if hasattr(arquivo, "read") else arquivo
         content_type = getattr(arquivo, "type", None) or f"image/{ext}"
-        sb().storage.from_("rdo-fotos").upload(
+        sb().storage.from_(_BUCKET_FOTOS).upload(
             path, content,
             file_options={"content-type": content_type, "upsert": "false"}
         )
-        url = sb().storage.from_("rdo-fotos").get_public_url(path)
-        return url
+        return path
     except Exception:
         print("[sync.upload_rdo_foto] ERRO:\n", traceback.format_exc())
         return None
+
+
+def resolver_fotos(fotos: list) -> list[dict]:
+    """Converte a lista salva no RDO ({nome, path}) em {nome, url} com links
+    temporários (1h). Itens antigos com "url" direta são mantidos como estão."""
+    saida = []
+    for f in fotos or []:
+        if not isinstance(f, dict):
+            saida.append({"nome": "Foto", "url": str(f)})
+            continue
+        if f.get("path"):
+            try:
+                from db import sb
+                r = sb().storage.from_(_BUCKET_FOTOS).create_signed_url(f["path"], 3600)
+                url = r.get("signedURL") or r.get("signedUrl") or ""
+            except Exception:
+                print("[sync.resolver_fotos] ERRO:\n", traceback.format_exc())
+                url = ""
+            saida.append({"nome": f.get("nome", "Foto"), "url": url})
+        else:
+            saida.append(f)
+    return saida
 
 
 def rdo_update_fotos(rdo_id: str, fotos: list) -> bool:
