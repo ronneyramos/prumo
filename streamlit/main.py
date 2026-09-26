@@ -12,6 +12,7 @@ importlib.reload(sync)
 import db
 importlib.reload(db)
 from confirmacao import pedir_confirmacao as _pedir_confirmacao, confirmou_exclusao as _confirmou_exclusao
+from campos import campo_data, campo_mes, ISO
 
 st.set_page_config(page_title="Prumo ERP", layout="wide", page_icon="🏗️",
                    initial_sidebar_state="expanded")
@@ -2105,8 +2106,8 @@ def pagina_obras():
                             bdi = c2.number_input("BDI (%)",value=float(L.get("BDI (%)",25.0)),min_value=0.0,max_value=100.0,step=0.5)
                         else:
                             bdi = float(L.get("BDI (%)", 25.0))
-                        ini    = c1.text_input("Início",      value=L["Início"])
-                        term   = c2.text_input("Término",     value=L["Término"])
+                        ini    = campo_data("Início", L["Início"], container=c1)
+                        term   = campo_data("Término", L["Término"], opcional=True, container=c2)
                         pct    = c1.slider("% Físico",0,100,int(L["% Físico"]))
                         status_opts = ["Em andamento","Paralisada","Concluída","Planejamento","Cancelada"]
                         st_idx = status_opts.index(L["Status"]) if L["Status"] in status_opts else 0
@@ -2215,11 +2216,11 @@ def pagina_obras():
         obra_med = st.selectbox("Obra *", obras_med, key="med_obra_sel")
         with st.form("form_medicao"):
             c1, c2 = st.columns(2)
-            periodo_med = c1.text_input("Período (mês/ano) *", value=date.today().strftime("%m/%Y"))
+            periodo_med = campo_mes("Período *", key="med_periodo", container=c1)
             pct_med_inp = c2.number_input("% Medido (acumulado da obra) *", min_value=0.0, max_value=100.0, step=0.5, value=0.0,
                                            help="Informe o % físico ACUMULADO total da obra até este período.")
             obs_med     = c1.text_input("Observação")
-            venc_med    = c2.text_input("Vencimento do BM", value=(date.today() + timedelta(days=15)).strftime("%d/%m/%Y"))
+            venc_med    = campo_data("Vencimento do BM", date.today() + timedelta(days=15), container=c2)
             ok_med = st.form_submit_button("📏 Registrar Medição", type="primary")
         if ok_med:
             if obra_med.startswith("("):
@@ -2290,8 +2291,8 @@ def pagina_obras():
                 bdi = c2.number_input("BDI (%)",min_value=0.0,max_value=100.0,value=25.0,step=0.5)
             else:
                 bdi = 25.0
-            ini    = c1.text_input("Início (dd/mm/aaaa)",value=date.today().strftime("%d/%m/%Y"))
-            term   = c2.text_input("Término (dd/mm/aaaa)")
+            ini    = campo_data("Início", date.today(), container=c1)
+            term   = campo_data("Término", opcional=True, container=c2)
             pct    = c1.slider("% Físico Inicial",0,100,0)
             stat   = c2.selectbox("Status",["Planejamento","Em andamento","Paralisada","Concluída","Cancelada"])
             ok = st.form_submit_button("➕ Cadastrar",type="primary")
@@ -2682,7 +2683,7 @@ def pagina_suprimentos():
                 forn_opts = _uniq(st.session_state.fornecedores["Razão Social"]) if "fornecedores" in st.session_state and not st.session_state.fornecedores.empty else []
                 forn_c = c1.selectbox("Fornecedor *", forn_opts if forn_opts else [""])
                 obra_c = c2.selectbox("Obra", _obras_nomes())
-                data_c = c1.text_input("Data", value=date.today().strftime("%Y-%m-%d"))
+                data_c = campo_data("Data", date.today(), fmt=ISO, container=c1)
                 val_c = c2.text_input("Validade")
                 cond_c = c1.text_input("Condição Pagamento")
                 prazo_c = c2.number_input("Prazo Entrega (dias)", min_value=0, value=0, step=1)
@@ -3189,15 +3190,14 @@ def pagina_suprimentos():
             c1, c2, c3 = st.columns(3)
             forn_nf = c1.text_input("Fornecedor *")
             num_nf  = c2.text_input("Número da NF", value="NF-")
-            data_nf = c3.text_input("Data da NF", value=date.today().strftime("%d/%m/%Y"))
+            data_nf = campo_data("Data da NF", date.today(), container=c3)
             qtd_nf  = c1.number_input("Quantidade", min_value=0.001, step=1.0, value=1.0)
             un_nf   = c2.text_input("Unidade")
             obs_nf  = c3.text_input("Observação")
             st.markdown("**Dados Financeiros**")
             cf1, cf2, cf3 = st.columns(3)
             val_nf   = cf1.number_input("Valor Total da NF (R$)", min_value=0.0, step=100.0)
-            venc_nf  = cf2.text_input("Data de Vencimento",
-                                       value=(date.today() + timedelta(days=30)).strftime("%d/%m/%Y"))
+            venc_nf  = campo_data("Data de Vencimento", date.today() + timedelta(days=30), container=cf2)
             forma_nf = cf3.selectbox("Forma de Pagamento",
                                       ["Boleto", "PIX", "Transferência", "Cartão", "Cheque", "A definir"])
             ok_nf = st.form_submit_button("📥 Registrar Entrada + Gerar Conta a Pagar", type="primary")
@@ -3470,7 +3470,7 @@ def pagina_financeiro():
             contra  = c2.text_input("Fornecedor" if tipo_l=="Conta a Pagar" else "Cliente")
             desc_l  = c1.text_input("Descrição")
             val_l   = c2.number_input("Valor (R$)", min_value=0.0, step=100.0)
-            venc_l  = c1.text_input("Vencimento (dd/mm/aaaa)", value=date.today().strftime("%d/%m/%Y"))
+            venc_l  = campo_data("Vencimento", date.today(), container=c1)
             nf_l    = c2.text_input("NF / Documento", value="—")
             eap_item_id = None
             tipo_custo_l = None
@@ -4269,7 +4269,7 @@ def pagina_pessoal():
                                     sal_f = c1.number_input("Salário / Valor (R$)", value=_to_num(_sf["Salário (R$)"]),step=100.0)
                                 else:
                                     sal_f = _to_num(_sf["Salário (R$)"])
-                                adm_f   = c2.text_input("Admissão", value=str(_sf.get("Admissão","") or ""))
+                                adm_f   = campo_data("Admissão", _sf.get("Admissão"), opcional=True, container=c2)
                                 sit_opts = ["Ativo","Férias","Afastado","Demitido"]
                                 sit_val = str(_sf.get("Situação","Ativo") or "Ativo")
                                 sit_f   = c1.selectbox("Situação", sit_opts,
@@ -4389,7 +4389,7 @@ def pagina_pessoal():
             _ff_pt    = st.session_state.get("funcionarios", pd.DataFrame())
             _funcs_pt = _ff_pt["Nome"].tolist() if not _ff_pt.empty else ["(nenhum colaborador)"]
             func_p  = c1.selectbox("Funcionário", _funcs_pt)
-            data_p  = c2.text_input("Data", value=date.today().strftime("%d/%m/%Y"))
+            data_p  = campo_data("Data", date.today(), container=c2)
             tipo_p  = c1.selectbox("Tipo de Falta", ["Injustificada","Justificada","Atestado","Folga","Férias"])
             obra_p  = c2.selectbox("Obra", _obras_nomes(), key="obra_pt")
             obs_p   = c1.text_input("Observação")
@@ -4422,7 +4422,7 @@ def pagina_pessoal():
             c1, c2 = st.columns(2)
             _funcs_reg = _ff_pt["Nome"].tolist() if not _ff_pt.empty else ["(nenhum colaborador)"]
             func_reg  = c1.selectbox("Funcionário", _funcs_reg, key="ponto_reg_func")
-            data_reg  = c2.text_input("Data", value=date.today().strftime("%d/%m/%Y"), key="ponto_reg_data")
+            data_reg  = campo_data("Data", date.today(), container=c2, key="ponto_reg_data_dt")
             obra_reg  = c1.selectbox("Obra", _obras_nomes(), key="ponto_reg_obra")
             obs_reg   = c2.text_input("Observação", key="ponto_reg_obs")
             c3, c4, c5, c6 = st.columns(4)
@@ -4507,7 +4507,7 @@ def pagina_pessoal():
                 st.markdown("---")
                 st.subheader("📄 Exportar Folha de Pagamento (PDF)")
                 ob_pdf_folha = st.selectbox("Obra para exportar", ["Todas as Obras"] + _uniq(ff_all["Obra"]), key="folha_pdf_obra")
-                ref_pdf_folha = st.text_input("Mês de referência", value=date.today().strftime("%m/%Y"), key="folha_pdf_ref")
+                ref_pdf_folha = campo_mes("Mês de referência", key="folha_pdf_ref")
                 if st.button("📥 Gerar PDF da Folha", key="btn_gerar_folha", type="primary"):
                     try:
                         from gerar_pdf import gerar_folha_pagamento as _gerar_fp
@@ -4561,10 +4561,8 @@ def pagina_pessoal():
                 )
                 obras_folha_lanc = _obras_nomes()
                 ob_lanc = st.selectbox("Obra para lançamento", obras_folha_lanc, key="folha_ob_lanc")
-                ref_mes = st.text_input("Mês de referência", value=date.today().strftime("%m/%Y"),
-                                         key="folha_ref_mes")
-                venc_folha = st.text_input("Vencimento", key="folha_venc",
-                                            value=(date.today() + timedelta(days=5)).strftime("%d/%m/%Y"))
+                ref_mes = campo_mes("Mês de referência", key="folha_ref_mes")
+                venc_folha = campo_data("Vencimento", date.today() + timedelta(days=5), key="folha_venc_dt")
                 obra_uuid_folha = _obra_uuid(ob_lanc)
                 df_eap_folha = db.eap_itens_por_obra(obra_uuid_folha) if obra_uuid_folha else pd.DataFrame()
                 eap_opts_folha = [""] + [f"{r['codigo']} — {r['descricao']}" for _, r in df_eap_folha.iterrows()] if not df_eap_folha.empty else [""]
@@ -4640,7 +4638,7 @@ def pagina_pessoal():
             cont_nf  = c1.selectbox("Tipo de Contrato *", ["CLT","MEI","Empreiteiro","Autônomo","Diarista","Estagiário"])
             obra_nf  = c2.selectbox("Obra Alocada", _obras_nomes(["Sede","Todas"]))
             sal_nf   = c1.number_input("Salário / Valor (R$)", min_value=0.0, step=100.0)
-            adm_nf   = c2.text_input("Admissão", value=date.today().strftime("%d/%m/%Y"))
+            adm_nf   = campo_data("Admissão", date.today(), container=c2)
             sit_nf   = c1.selectbox("Situação", ["Ativo","Férias","Afastado","Demitido"])
             ok_nf    = st.form_submit_button("➕ Cadastrar", type="primary")
         if ok_nf:
@@ -4669,7 +4667,7 @@ def pagina_pessoal():
                 c1, c2 = st.columns(2)
                 func_opts = _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else []
                 func_f = c1.selectbox("Funcionário *", func_opts if func_opts else [""])
-                ini_f = c2.text_input("Data Início *", value=date.today().strftime("%Y-%m-%d"))
+                ini_f = campo_data("Data Início *", date.today(), fmt=ISO, container=c2)
                 dias_f = c1.number_input("Dias", min_value=1, max_value=30, value=30, step=1)
                 sal_f = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_f]["Salário (R$)"].iloc[0]) if func_f and not st.session_state.funcionarios.empty else 0
                 vb_f = c2.number_input("Valor Bruto (R$)", min_value=0.0, value=sal_f, step=100.0)
@@ -4750,7 +4748,7 @@ def pagina_pessoal():
                 c1, c2 = st.columns(2)
                 func_opts_r = _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else []
                 func_r = c1.selectbox("Funcionário *", func_opts_r if func_opts_r else [""])
-                data_r = c2.text_input("Data da Rescisão *", value=date.today().strftime("%Y-%m-%d"))
+                data_r = campo_data("Data da Rescisão *", date.today(), fmt=ISO, container=c2)
                 tipo_r = c1.selectbox("Tipo", ["Sem justa causa", "Com justa causa", "Pedido demissão", "Término contrato", "Acordo"])
                 aviso_r = c2.selectbox("Aviso Prévio", ["Trabalhado", "Indenizado", "Dispensado"])
                 sal_r = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_r]["Salário (R$)"].iloc[0]) if func_r and not st.session_state.funcionarios.empty else 0
@@ -4947,7 +4945,7 @@ def pagina_qualidade():
             desc_nc  = c1.text_area("Descrição",height=80)
             acao_nc  = c2.text_area("Ação Corretiva",height=80)
             resp_nc  = c1.text_input("Responsável")
-            prazo_nc = c2.text_input("Prazo (dd/mm/aaaa)")
+            prazo_nc = campo_data("Prazo", opcional=True, container=c2)
             ok_nc    = st.form_submit_button("⚠️ Abrir NC",type="primary")
         if ok_nc:
             novo_id_nc = f"NC-{(len(st.session_state.ncs)+1):03d}"
@@ -5866,8 +5864,7 @@ def pagina_rdo():
             gf3, gf4, gf5 = st.columns(3)
             forn_cp  = gf3.text_input("Fornecedor/Prestador", value=resp_rdo or "Mão-de-obra direta",
                                        key="rdo_cp_forn")
-            venc_cp  = gf4.text_input("Vencimento", value=(date.today() + timedelta(days=30)).strftime("%d/%m/%Y"),
-                                       key="rdo_cp_venc")
+            venc_cp  = campo_data("Vencimento", date.today() + timedelta(days=30), container=gf4, key="rdo_cp_venc_dt")
             forma_cp = gf5.selectbox("Forma Pag.", ["Transferência", "Boleto", "Cheque", "Dinheiro", "Cartão"],
                                       key="rdo_cp_forma")
             obra_uuid_cp = _obra_uuid(obra_rdo) if _obra_valida(obra_rdo) else None
@@ -5926,7 +5923,8 @@ def pagina_rdo():
                     valor_cp = st.session_state.get("rdo_cp_valor", 0.0)
                     forn_cp  = st.session_state.get("rdo_cp_forn", "Mão-de-obra direta")
                     cat_cp   = st.session_state.get("rdo_cp_cat", "Mão-de-obra")
-                    venc_cp  = st.session_state.get("rdo_cp_venc", "")
+                    _venc_dt = st.session_state.get("rdo_cp_venc_dt")  # date do seletor
+                    venc_cp  = _venc_dt.strftime("%d/%m/%Y") if _venc_dt else ""
                     forma_cp = st.session_state.get("rdo_cp_forma", "Transferência")
                     eap_id_cp = None
                     df_eap_cp = db.eap_itens_por_obra(obra_uuid) if (obra_uuid := _obra_uuid(obra_rdo)) else pd.DataFrame()
@@ -6384,10 +6382,8 @@ def pagina_eap():
                         ex = datas_obra.get(k, {})
                         c1_, c2_, c3_ = st.columns([4, 2, 2])
                         c1_.markdown(f"**{etapa[:55]}**")
-                        ini_ = c2_.text_input("Início",  value=ex.get("ini",""),
-                                              key=f"ini_{k}", placeholder="01/03/2026")
-                        fim_ = c3_.text_input("Término", value=ex.get("fim",""),
-                                              key=f"fim_{k}", placeholder="31/05/2026")
+                        ini_ = campo_data("Início", ex.get("ini"), opcional=True, container=c2_, key=f"ini_dt_{k}")
+                        fim_ = campo_data("Término", ex.get("fim"), opcional=True, container=c3_, key=f"fim_dt_{k}")
                         novas_datas[k] = {"ini": ini_, "fim": fim_, "desc": etapa}
                     ok_dt = st.form_submit_button("💾 Salvar Datas", type="primary")
                 if ok_dt:
@@ -6774,9 +6770,7 @@ def pagina_relatorios():
     with tab_ger:
         st.markdown("##### Relatório Gerencial Mensal — consolidado de todas as obras")
         rg_c1, rg_c2 = st.columns([3, 1])
-        mes_ref = rg_c1.text_input("Mês de referência",
-            value=date.today().strftime("%B/%Y"), key="rg_mes_ref2",
-            placeholder="Junho/2026")
+        mes_ref = campo_mes("Mês de referência", extenso=True, key="rg_mes_ref2", container=rg_c1)
         if rg_c2.button("📥 Gerar PDF", key="btn_gerar_rg2", type="primary", width='stretch'):
             try:
                 from gerar_pdf import gerar_relatorio_gerencial as _gerar_rg
@@ -6812,7 +6806,7 @@ def pagina_relatorios():
         st.markdown("##### Relatório Financeiro — Contas a Pagar / Receber")
         fin_c1, fin_c2 = st.columns(2)
         obra_fin = fin_c1.selectbox("Obra", ["Todas"] + obras_lista, key="rel_fin_obra")
-        mes_fin  = fin_c2.text_input("Mês de referência", value=date.today().strftime("%m/%Y"), key="rel_fin_mes")
+        mes_fin  = campo_mes("Mês de referência", key="rel_fin_mes", container=fin_c2)
         cp = st.session_state.contas_pagar.copy()
         cr = st.session_state.contas_receber.copy()
         if obra_fin != "Todas":
@@ -6866,17 +6860,20 @@ def pagina_relatorios():
     with tab_rdo:
         st.markdown("##### Relatório de Diários de Obra")
         rdo_obra = st.selectbox("Obra", ["Todas"] + obras_lista, key="rel_rdo_obra")
-        rdo_desde = st.text_input("Data inicial (dd/mm/aaaa)", key="rel_rdo_desde")
-        rdo_ate   = st.text_input("Data final (dd/mm/aaaa)",   key="rel_rdo_ate")
+        rdo_desde = campo_data("Data inicial", opcional=True, key="rel_rdo_desde_dt")
+        rdo_ate   = campo_data("Data final", opcional=True, key="rel_rdo_ate_dt")
         df_rdo_r = st.session_state.rdo.copy()
         if rdo_obra != "Todas":
             df_rdo_r = df_rdo_r[df_rdo_r["Obra"] == rdo_obra]
-        if rdo_desde and rdo_ate:
-            try:
-                mask = (df_rdo_r["Data"] >= rdo_desde) & (df_rdo_r["Data"] <= rdo_ate)
-                df_rdo_r = df_rdo_r[mask]
-            except Exception:
-                pass
+        if rdo_desde or rdo_ate:
+            # Compara como data: texto "dd/mm/aaaa" não ordena corretamente
+            _dt_rdo = pd.to_datetime(df_rdo_r["Data"], dayfirst=True, errors="coerce")
+            mask = pd.Series(True, index=df_rdo_r.index)
+            if rdo_desde:
+                mask &= _dt_rdo >= pd.to_datetime(rdo_desde, dayfirst=True)
+            if rdo_ate:
+                mask &= _dt_rdo <= pd.to_datetime(rdo_ate, dayfirst=True)
+            df_rdo_r = df_rdo_r[mask]
         if df_rdo_r.empty:
             st.info("Nenhum RDO encontrado.")
         else:
