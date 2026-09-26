@@ -26,6 +26,26 @@ def _is_dev() -> bool:
     return os.path.exists(os.path.join(os.path.dirname(__file__), ".env"))
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _config_global(chave: str, padrao: str = "") -> str:
+    """Valor global de app_config (Painel Dev → Config). Lido com service_role porque
+    também é usado na tela de login, antes de existir usuário."""
+    try:
+        from db import sb_admin
+        r = sb_admin().table("app_config").select("value").eq("key", chave) \
+            .is_("empresa_id", "null").limit(1).execute()
+        return (r.data[0]["value"] if r.data else padrao) or padrao
+    except Exception as e:
+        print(f"[config] {chave}: {e}")
+        return padrao
+
+
+def _cadastro_aberto() -> bool:
+    """Cadastro público de construtoras. Fechado durante o piloto; para abrir, criar
+    a chave cadastro_aberto = true no Painel Dev → Config."""
+    return _config_global("cadastro_aberto", "false").strip().lower() in ("true", "1", "sim")
+
+
 def _is_plataforma_admin() -> bool:
     """Dono da plataforma (tabela plataforma_admins). Não confundir com admin da empresa."""
     return bool(st.session_state.get("plataforma_admin"))
@@ -476,18 +496,20 @@ def _auth_login():
                 st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
                 entrar = st.form_submit_button("ENTRAR", width='stretch')
 
-            st.markdown("""
+            _convite = ("""Ainda não tem conta?
+                    <strong style="color:#1B3A5E;">Solicite uma demonstração</strong>
+                    ou <strong style="color:#1B3A5E;">cadastre-se.</strong>""" if _cadastro_aberto()
+                        else "Acesso por convite. Peça ao administrador da sua construtora.")
+            st.markdown(f"""
             <div style="text-align:center;margin-top:14px;">
                 <p style="font-size:13px;color:#6B7280;margin:0;">
-                    Ainda não tem conta?
-                    <strong style="color:#1B3A5E;cursor:pointer;">Solicite uma demonstração</strong>
-                    ou <strong style="color:#1B3A5E;cursor:pointer;">cadastre-se.</strong>
+                    {_convite}
                 </p>
             </div>
             """, unsafe_allow_html=True)
 
             _b1, _b2 = st.columns(2)
-            if _b1.button("Criar conta gratuita →", key="btn_ir_cadastro", width='content'):
+            if _cadastro_aberto() and _b1.button("Criar conta gratuita →", key="btn_ir_cadastro", width='content'):
                 st.session_state.auth_mode = "cadastro"
                 st.rerun()
             if _b2.button("Esqueci minha senha", key="btn_ir_recuperar", width='content'):
@@ -645,6 +667,13 @@ def _auth_login():
                     st.rerun()
             if st.button("← Voltar ao login", key="btn_rec_voltar"):
                 st.session_state.pop("_rec_email", None)
+                st.session_state.auth_mode = "login"
+                st.rerun()
+
+        elif not _cadastro_aberto():  # ── Cadastro fechado (piloto) ───────────
+            st.info("O cadastro de novas construtoras está fechado no momento. "
+                    "O acesso é por convite do administrador da sua empresa.")
+            if st.button("← Voltar ao login", key="btn_cad_fechado_voltar"):
                 st.session_state.auth_mode = "login"
                 st.rerun()
 
