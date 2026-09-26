@@ -2313,6 +2313,86 @@ def pagina_obras():
 
 # ── Suprimentos ──────────────────────────────────────────────────────────────
 
+def _importar_xml_nfe(obra_nf: str):
+    """Upload do XML da NF-e → prévia → fornecedor + estoque + contas a pagar."""
+    import nfe
+    arq = st.file_uploader("XML da NF-e", type=["xml"], key="nfe_xml_upload",
+                           help="O arquivo .xml que o fornecedor envia junto com a nota.")
+    if not arq:
+        st.caption("O fornecedor, os itens, o valor e as parcelas são lidos do XML. "
+                   "Você só confere e confirma.")
+        return
+    try:
+        nota = nfe.ler_nfe(arq.getvalue())
+    except nfe.NFeInvalida as e:
+        st.error(f"❌ {e}")
+        return
+
+    doc = f"{nota.numero}/{nota.serie}" if nota.serie else nota.numero
+    c1, c2, c3 = st.columns(3)
+    c1.metric("NF-e", doc)
+    c2.metric("Emissão", nota.emissao.strftime("%d/%m/%Y"))
+    c3.metric("Valor total", _fmt(nota.valor_total))
+    st.markdown(f"**Fornecedor:** {nota.emitente_nome} — CNPJ {nfe.formatar_cnpj(nota.emitente_cnpj)}")
+
+    # Avisos que não impedem a importação
+    if not nota.autorizada:
+        st.warning("⚠️ Este XML não traz o protocolo de autorização da SEFAZ. "
+                   "Confira se a nota foi autorizada antes de pagar.")
+    try:
+        from db import sb
+        _cnpj_emp = (sb().table("empresas").select("cnpj").eq("id", st.session_state.get("empresa_id"))
+                     .execute().data or [{}])[0].get("cnpj")
+        if _cnpj_emp and nota.destinatario_cnpj and nfe.somente_digitos(_cnpj_emp) != nota.destinatario_cnpj:
+            st.warning(f"⚠️ O destinatário da nota (CNPJ {nfe.formatar_cnpj(nota.destinatario_cnpj)}) "
+                       "não é o CNPJ da sua empresa.")
+    except Exception:
+        pass
+
+    st.dataframe(pd.DataFrame([{
+        "Descrição": i.descricao, "Un": i.unidade, "Qtd": i.quantidade,
+        "Valor Unit.": _fmt(i.valor_unitario), "Total": _fmt(i.valor_total), "NCM": i.ncm,
+    } for i in nota.itens]), hide_index=True, width='stretch')
+
+    parcelas = nfe.parcelas_para_pagar(nota)
+    st.markdown("**Contas a pagar que serão criadas:** " + " · ".join(
+        f"{p.vencimento.strftime('%d/%m/%Y')} — {_fmt(p.valor)}" for p in parcelas)
+        + f" ({nota.forma_pagamento})")
+    if not nota.parcelas:
+        st.caption("A nota não tem duplicatas: será criada uma conta única com vencimento na data de emissão.")
+
+    obra_ok = _obra_valida(obra_nf)
+    entrada = st.checkbox(f"Dar entrada dos {len(nota.itens)} itens no estoque da obra **{obra_nf}**",
+                          value=obra_ok, disabled=not obra_ok, key="nfe_entrada_estoque")
+    if not obra_ok:
+        st.caption("Selecione uma obra acima para dar entrada no estoque.")
+
+    if nfe_ja := sync.nfe_ja_importada(nota.chave):
+        st.error("🚫 Esta NF-e já foi importada (existe conta a pagar com a mesma chave de acesso).")
+    if st.button("📥 Importar NF-e", type="primary", key="btn_importar_nfe", disabled=bool(nfe_ja)):
+        with st.spinner("Importando..."):
+            res = sync.importar_nfe(nota, _obra_uuid(obra_nf) if obra_ok else None, entrada)
+        contas_ok = [c for c in res["contas"] if c["SB_ID"]]
+        if not contas_ok:
+            st.error("❌ Não foi possível gravar as contas a pagar. Nada foi confirmado; tente novamente.")
+            return
+        # Recarrega tudo do banco (contas, estoque, fornecedores) na próxima execução
+        st.cache_data.clear()
+        st.session_state.pop("fornecedores", None)
+        st.session_state.pop("_erp_init_done", None)
+        partes = [f"{len(contas_ok)} conta(s) a pagar"]
+        if entrada:
+            partes.append(f"{res['itens_ok']} item(ns) no estoque")
+        if res["fornecedor_criado"]:
+            partes.append("fornecedor cadastrado")
+        _notify(f"✅ NF-e {doc} importada: " + ", ".join(partes) + "!")
+        if res["itens_falha"]:
+            st.session_state["_toast_pending"] = (
+                f"⚠️ NF-e importada, mas {len(res['itens_falha'])} item(ns) não entraram no estoque: "
+                + ", ".join(res["itens_falha"][:3]), "⚠️")
+        st.rerun()
+
+
 def pagina_suprimentos():
     import plotly.graph_objects as go
     st.title("📦 Suprimentos")
@@ -3149,6 +3229,11 @@ def pagina_suprimentos():
 
         # Obra (fora do form para manter estado ao adicionar insumo)
         obra_nf = st.selectbox("Obra *", _obras_nomes(), key="nf_obra_sel")
+
+        with st.expander("📄 Importar XML da NF-e (preenche tudo automaticamente)", expanded=True):
+            _importar_xml_nfe(obra_nf)
+
+        st.markdown("##### ✍️ Ou digite a nota manualmente")
 
         # ── Seleção de insumo com cadastro dinâmico ───────────────────
         st.markdown("**Insumo ***")

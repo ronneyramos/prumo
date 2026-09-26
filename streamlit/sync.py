@@ -227,7 +227,7 @@ def lancamento_save(dados: dict, tipo: str,
             "descricao":       dados.get("Descrição", ""),
             "valor":           float(dados.get("Valor (R$)", 0) or 0),
             "categoria":       dados.get("Categoria") or ("Materiais" if tipo == "PAGAR" else None),
-            "data_emissao":    datetime.now().strftime("%Y-%m-%d"),
+            "data_emissao":    _br_to_iso(dados.get("Emissão")) or datetime.now().strftime("%Y-%m-%d"),
             "data_vencimento": _br_to_iso(dados.get("Vencimento")),
             "documento":       dados.get("NF") or None,
             "forma_pagamento": dados.get("Forma Pag.") or None,
@@ -235,6 +235,10 @@ def lancamento_save(dados: dict, tipo: str,
             "eap_item_id":     dados.get("eap_item_id") or None,
             "tipo_custo":      dados.get("tipo_custo") or None,
         }
+        # Opcionais: só vão no payload quando informados, para não apagar em edições
+        for chave_app, coluna in (("fornecedor_id", "fornecedor_id"), ("origem", "origem")):
+            if dados.get(chave_app):
+                payload[coluna] = dados[chave_app]
         res = lancamento_atualizar(sb_id, payload) if sb_id else lancamento_criar(payload)
         return (res or {}).get("id")
     except Exception:
@@ -878,12 +882,16 @@ def ponto_registro_save(dados: dict, obra_sb_id: str | None = None) -> str | Non
 def _get_or_create_insumo(descricao: str, unidade: str = "un") -> str | None:
     """Retorna UUID do insumo pelo nome, criando se não existir."""
     try:
+        import uuid as _uuid
         from db import sb as _sb
         desc = descricao.strip()
-        res = _sb().table("insumos").select("id").ilike("descricao", desc).limit(1).execute()
+        # ilike sem curingas: "%" e "_" na descrição não podem casar com outro insumo
+        padrao = desc.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+        res = _sb().table("insumos").select("id").ilike("descricao", padrao).limit(1).execute()
         if res.data:
             return res.data[0]["id"]
-        codigo = desc[:6].upper().replace(" ", "_")
+        # codigo é UNIQUE no banco inteiro (todas as empresas): prefixo legível + sufixo aleatório
+        codigo = f"{desc[:6].upper().replace(' ', '_')}-{_uuid.uuid4().hex[:6]}"
         novo = _sb().table("insumos").insert({
             "codigo":     codigo,
             "descricao":  desc,
@@ -1576,6 +1584,81 @@ def fornecedor_save(dados: dict, sb_id: str | None = None) -> str | None:
     except Exception:
         print("[sync.fornecedor_save] ERRO:\n", traceback.format_exc())
         return None
+
+
+def nfe_ja_importada(chave: str) -> bool:
+    """A chave da NF-e fica em lancamentos.origem ("NFE:<chave>")."""
+    from db import sb
+    res = sb().table("lancamentos").select("id").eq("origem", f"NFE:{chave}").limit(1).execute()
+    return bool(res.data)
+
+
+def fornecedor_da_nfe(nota) -> tuple[str | None, bool]:
+    """Acha o fornecedor pelo CNPJ (comparando só dígitos) ou cria. Retorna (uuid, criado)."""
+    from db import sb
+    import nfe as _nfe
+    try:
+        existentes = sb().table("fornecedores").select("id, cnpj").not_.is_("cnpj", "null").execute().data or []
+        for f in existentes:
+            if _nfe.somente_digitos(f.get("cnpj")) == nota.emitente_cnpj:
+                return f["id"], False
+    except Exception:
+        print("[sync.fornecedor_da_nfe] busca:\n", traceback.format_exc())
+    novo = fornecedor_save({
+        "CNPJ": _nfe.formatar_cnpj(nota.emitente_cnpj),
+        "Razão Social": nota.emitente_nome,
+        "Nome Fantasia": nota.emitente_fantasia,
+        "Telefone": nota.emitente_telefone,
+        "Endereço": nota.emitente_endereco,
+        "Categoria": "Materiais",
+    })
+    return novo, bool(novo)
+
+
+def importar_nfe(nota, obra_sb_id: str | None, dar_entrada_estoque: bool = True) -> dict:
+    """Grava a NF-e: fornecedor, entradas de estoque por item e uma conta a pagar por parcela.
+
+    Retorna um resumo {fornecedor_id, fornecedor_criado, itens_ok, itens_falha, contas}.
+    Não verifica duplicidade: chame nfe_ja_importada() antes.
+    """
+    import nfe as _nfe
+    forn_id, forn_criado = fornecedor_da_nfe(nota)
+    doc = f"{nota.numero}/{nota.serie}" if nota.serie else nota.numero
+
+    itens_ok, itens_falha = 0, []
+    if dar_entrada_estoque and obra_sb_id:
+        for it in nota.itens:
+            ok = estoque_movimento_save({
+                "Insumo": it.descricao, "Unidade": it.unidade or "un", "Tipo": "Entrada",
+                "Quantidade": it.quantidade, "Custo Unit.": it.valor_unitario,
+                "Observação": f"NF-e {doc}",
+            }, obra_sb_id)
+            if ok:
+                itens_ok += 1
+            else:
+                itens_falha.append(it.descricao)
+
+    parcelas = _nfe.parcelas_para_pagar(nota)
+    contas = []
+    for i, p in enumerate(parcelas, start=1):
+        sufixo = f" (parc. {i}/{len(parcelas)})" if len(parcelas) > 1 else ""
+        dados = {
+            "Fornecedor": nota.emitente_nome,
+            "Descrição": f"NF-e {doc} — {nota.emitente_fantasia or nota.emitente_nome}{sufixo}",
+            "Categoria": "Materiais",
+            "Valor (R$)": p.valor,
+            "Vencimento": p.vencimento.strftime("%d/%m/%Y"),
+            "Emissão": nota.emissao.strftime("%d/%m/%Y"),
+            "Status": "A Pagar",
+            "NF": doc,
+            "Forma Pag.": nota.forma_pagamento,
+            "fornecedor_id": forn_id,
+            "origem": f"NFE:{nota.chave}",
+        }
+        contas.append({**dados, "SB_ID": lancamento_save(dados, "PAGAR", obra_sb_id)})
+
+    return {"fornecedor_id": forn_id, "fornecedor_criado": forn_criado,
+            "itens_ok": itens_ok, "itens_falha": itens_falha, "contas": contas}
 
 
 def fornecedor_delete(sb_id: str):

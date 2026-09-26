@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+  <NFe>
+    <infNFe Id="NFe23260912345678000190550010000045671000045678" versao="4.00">
+      <ide>
+        <cUF>23</cUF><natOp>VENDA DE MERCADORIA</natOp><mod>55</mod><serie>1</serie><nNF>4567</nNF>
+        <dhEmi>2026-09-20T10:15:00-03:00</dhEmi><tpNF>1</tpNF>
+      </ide>
+      <emit>
+        <CNPJ>12345678000190</CNPJ>
+        <xNome>DEPOSITO DE MATERIAIS FICTICIO LTDA</xNome>
+        <xFant>Deposito Ficticio</xFant>
+        <enderEmit>
+          <xLgr>Rua das Pedras</xLgr><nro>100</nro><xBairro>Centro</xBairro>
+          <xMun>Fortaleza</xMun><UF>CE</UF><CEP>60000000</CEP><fone>8532220000</fone>
+        </enderEmit>
+      </emit>
+      <dest><CNPJ>98765432000110</CNPJ><xNome>CONSTRUTORA FICTICIA</xNome></dest>
+      <det nItem="1">
+        <prod>
+          <cProd>CIM50</cProd><xProd>CIMENTO CP II 50KG</xProd><NCM>25232910</NCM><CFOP>5102</CFOP>
+          <uCom>SC</uCom><qCom>100.0000</qCom><vUnCom>38.5000000000</vUnCom><vProd>3850.00</vProd>
+        </prod>
+      </det>
+      <det nItem="2">
+        <prod>
+          <cProd>ACO10</cProd><xProd>VERGALHAO CA-50 10MM</xProd><NCM>72142000</NCM><CFOP>5102</CFOP>
+          <uCom>BR</uCom><qCom>40.0000</qCom><vUnCom>52.0000000000</vUnCom><vProd>2080.00</vProd>
+          <vDesc>80.00</vDesc>
+        </prod>
+      </det>
+      <total><ICMSTot><vProd>5930.00</vProd><vDesc>80.00</vDesc><vNF>5850.00</vNF></ICMSTot></total>
+      <cobr>
+        <dup><nDup>001</nDup><dVenc>2026-10-20</dVenc><vDup>2925.00</vDup></dup>
+        <dup><nDup>002</nDup><dVenc>2026-11-19</dVenc><vDup>2925.00</vDup></dup>
+      </cobr>
+      <pag><detPag><tPag>15</tPag><vPag>5850.00</vPag></detPag></pag>
+    </infNFe>
+  </NFe>
+  <protNFe versao="4.00">
+    <infProt><chNFe>23260912345678000190550010000045671000045678</chNFe><cStat>100</cStat></infProt>
+  </protNFe>
+</nfeProc>
