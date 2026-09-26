@@ -11,6 +11,7 @@ import sync
 importlib.reload(sync)
 import db
 importlib.reload(db)
+from confirmacao import pedir_confirmacao as _pedir_confirmacao, confirmou_exclusao as _confirmou_exclusao
 
 st.set_page_config(page_title="Prumo ERP", layout="wide", page_icon="🏗️",
                    initial_sidebar_state="expanded")
@@ -1266,6 +1267,8 @@ def pagina_dev_panel():
                     exp = g.get("expires_at")
                     cols[2].caption(f"Expira: {exp[:10] if exp else 'Indeterminado'}")
                     if cols[3].button("🔒 Revogar", key=f"revoke_{g['id']}"):
+                        _pedir_confirmacao(f"grant_{g['id']}")
+                    if _confirmou_exclusao(f"grant_{g['id']}", f"a parceria de {emp_nome}"):
                         sb().table("empresas").update({"is_partner": False}).eq("id", g["empresa_id"]).execute()
                         sb().table("dev_grants").delete().eq("id", g["id"]).execute()
                         _dev_log("warning", "parceria", f"Revogou parceria de {emp_nome}")
@@ -1387,6 +1390,8 @@ def pagina_dev_panel():
                             f"{'Ativou' if novo_val else 'Desativou'} toggle {t_row.get('feature_key','')} para {emp_nome_t}")
                         st.rerun()
                     if cols[3].button("🗑️", key=f"del_tog_{t_row['id']}"):
+                        _pedir_confirmacao(f"tog_{t_row['id']}")
+                    if _confirmou_exclusao(f"tog_{t_row['id']}", f"o toggle {t_row.get('feature_key','')}"):
                         sb().table("feature_toggles").delete().eq("id", t_row["id"]).execute()
                         st.rerun()
 
@@ -2116,6 +2121,8 @@ def pagina_obras():
                         except Exception: st.warning("Obra salva localmente, mas falhou sincronização com servidor.")
                         _notify(f"✅ Obra **{nome}** atualizada com sucesso!"); st.rerun()
                     if excluir:
+                        _pedir_confirmacao(f"obra_{id_sel}")
+                    if _confirmou_exclusao(f"obra_{id_sel}", f"a obra {L['Nome']}"):
                         _nome_exc = L["Nome"]
                         uuid_exc = _sb_id(st.session_state.obras, id_sel)
                         st.session_state.obras = st.session_state.obras[st.session_state.obras["ID"]!=id_sel].reset_index(drop=True)
@@ -2833,6 +2840,8 @@ def pagina_suprimentos():
                     fornecedor_save(novos_dados, sb_id=sb_id_f)
                     _notify(f"Fornecedor **{e_rz}** atualizado!"); st.rerun()
                 if del_f:
+                    _pedir_confirmacao(f"forn_{row_f['ID']}")
+                if _confirmou_exclusao(f"forn_{row_f['ID']}", f"o fornecedor {row_f['Razão Social']}"):
                     sb_id_f = _sb_id(st.session_state.fornecedores, row_f["ID"])
                     if sb_id_f: _forn_delete(sb_id_f)
                     st.session_state.fornecedores = st.session_state.fornecedores[
@@ -2938,6 +2947,8 @@ def pagina_suprimentos():
                             st.session_state.subempreiteiros_df = subempreiteiros_load()
                             _notify("Subempreiteiro atualizado!"); st.rerun()
                         if del_sub:
+                            _pedir_confirmacao(f"sub_{row_sub['ID']}")
+                        if _confirmou_exclusao(f"sub_{row_sub['ID']}", f"o subempreiteiro {row_sub.get('Razão Social', '')}"):
                             sb_id_sub = _sb_id(st.session_state.subempreiteiros_df, row_sub["ID"])
                             if sb_id_sub:
                                 subempreiteiro_delete(sb_id_sub)
@@ -3007,6 +3018,8 @@ def pagina_suprimentos():
                         sel_ct = st.selectbox("Selecione o contrato",
                                               _contratos_df["Nº Contrato"].tolist(), key="sub_ct_del_sel")
                         if st.button("🗑️ Excluir Contrato", type="secondary"):
+                            _pedir_confirmacao("sub_contrato")
+                        if _confirmou_exclusao("sub_contrato", f"o contrato {sel_ct}"):
                             _match_ct_del = _contratos_df[_contratos_df["Nº Contrato"] == sel_ct]
                             if _match_ct_del.empty:
                                 st.warning("Contrato não encontrado.")
@@ -3119,6 +3132,8 @@ def pagina_suprimentos():
                             ).tolist()
                             sel_doc_label = st.selectbox("Selecione o documento", _doc_labels, key="sub_doc_del_sel")
                             if st.button("🗑️ Excluir", type="secondary"):
+                                _pedir_confirmacao("sub_documento")
+                            if _confirmou_exclusao("sub_documento", f"o documento {sel_doc_label}"):
                                 _idx_doc = _doc_labels.index(sel_doc_label)
                                 row_doc = _docs_df.iloc[_idx_doc]
                                 sb_id_doc = _sb_id(_docs_df, row_doc["ID"])
@@ -3341,12 +3356,14 @@ def pagina_financeiro():
                                 _notify(f"✅ Status atualizado para **{ns_p}**!"); st.rerun()
                         with cb:
                             if st.button("🗑️ Excluir Lançamento", key="del_cp"):
-                                uuid_cp_del = _sb_id(st.session_state.contas_pagar, LP["ID"])
-                                st.session_state.contas_pagar = st.session_state.contas_pagar[
-                                    st.session_state.contas_pagar["ID"] != LP["ID"]
-                                ].reset_index(drop=True)
-                                if uuid_cp_del: sync.lancamento_delete(uuid_cp_del)
-                                _notify(f"✅ Lançamento excluído com sucesso!"); st.rerun()
+                                _pedir_confirmacao(f"cp_{LP['ID']}")
+                        if _confirmou_exclusao(f"cp_{LP['ID']}", f"a conta a pagar {LP.get('Descrição', '')} ({_fmt(LP.get('Valor (R$)', 0))})"):
+                            uuid_cp_del = _sb_id(st.session_state.contas_pagar, LP["ID"])
+                            st.session_state.contas_pagar = st.session_state.contas_pagar[
+                                st.session_state.contas_pagar["ID"] != LP["ID"]
+                            ].reset_index(drop=True)
+                            if uuid_cp_del: sync.lancamento_delete(uuid_cp_del)
+                            _notify("✅ Lançamento excluído com sucesso!"); st.rerun()
                 else:
                     # Ação em lote
                     cols_lote = st.columns([2, 2, 1])
@@ -3417,12 +3434,14 @@ def pagina_financeiro():
                                 _notify(f"✅ Status atualizado para **{ns_r}**!"); st.rerun()
                         with cb_r:
                             if st.button("🗑️ Excluir", key="del_cr"):
-                                uuid_cr_del = _sb_id(st.session_state.contas_receber, LR["ID"])
-                                st.session_state.contas_receber = st.session_state.contas_receber[
-                                    st.session_state.contas_receber["ID"] != LR["ID"]
-                                ].reset_index(drop=True)
-                                if uuid_cr_del: sync.lancamento_delete(uuid_cr_del)
-                                _notify(f"✅ Lançamento excluído com sucesso!"); st.rerun()
+                                _pedir_confirmacao(f"cr_{LR['ID']}")
+                        if _confirmou_exclusao(f"cr_{LR['ID']}", f"a conta a receber {LR.get('Descrição', '')} ({_fmt(LR.get('Valor (R$)', 0))})"):
+                            uuid_cr_del = _sb_id(st.session_state.contas_receber, LR["ID"])
+                            st.session_state.contas_receber = st.session_state.contas_receber[
+                                st.session_state.contas_receber["ID"] != LR["ID"]
+                            ].reset_index(drop=True)
+                            if uuid_cr_del: sync.lancamento_delete(uuid_cr_del)
+                            _notify("✅ Lançamento excluído com sucesso!"); st.rerun()
                 else:
                     # Ação em lote
                     cols_lote_r = st.columns([2, 2, 1])
@@ -3958,6 +3977,8 @@ def pagina_financeiro():
                             cc2.markdown(f"Transações: {row_conc.get('total_transacoes', 0)}")
                             cc3.markdown(f"Conciliadas: {row_conc.get('total_conciliadas', 0)}")
                             if cc4.button("🗑️", key=f"del_conc_{row_conc['id']}"):
+                                _pedir_confirmacao(f"conc_{row_conc['id']}")
+                            if _confirmou_exclusao(f"conc_{row_conc['id']}", "esta conciliação e todos os seus itens"):
                                 _conc_delete(row_conc["id"])
                                 st.rerun()
 
@@ -4271,6 +4292,8 @@ def pagina_pessoal():
                                                        "Obra": obra_f}, sb_id=sb_uuid)
                                 _notify(f"✅ Dados de **{nome_f}** atualizados com sucesso!"); st.rerun()
                             if del_f:
+                                _pedir_confirmacao(f"func_{id_f}")
+                            if _confirmou_exclusao(f"func_{id_f}", f"o funcionário {nome_f}"):
                                 _nome_del_f = nome_f
                                 uuid_f_del = _sb_id(st.session_state.funcionarios, id_f)
                                 st.session_state.funcionarios = st.session_state.funcionarios[st.session_state.funcionarios["ID"]!=id_f].reset_index(drop=True)
@@ -4315,6 +4338,8 @@ def pagina_pessoal():
                             st.rerun()
                     st.markdown("---")
                     if st.button(f"🗑️ Excluir {n_sel_f} selecionados", type="secondary", key="bulk_del_func"):
+                        _pedir_confirmacao("func_lote")
+                    if _confirmou_exclusao("func_lote", f"{n_sel_f} funcionário(s): {', '.join(LF['Nome'].astype(str).head(3))}{'...' if n_sel_f > 3 else ''}"):
                         _removidos = []
                         for _, _rf in LF.iterrows():
                             _id_fd = _rf["ID"]
@@ -4780,6 +4805,8 @@ def pagina_pessoal():
                         st.markdown(f"**Total Bruto:** {_fmt(float(row_r.get('Total Bruto',0)))}")
                         st.markdown(f"**Total Líquido:** {_fmt(float(row_r.get('Total Líquido',0)))}")
                         if st.button("🗑️ Excluir", key=f"del_resc_{row_r['ID']}"):
+                            _pedir_confirmacao(f"resc_{row_r['ID']}")
+                        if _confirmou_exclusao(f"resc_{row_r['ID']}", f"a rescisão de {row_r.get('Funcionário', '')}"):
                             sb_id_r = _sb_id(st.session_state.rescisoes, row_r["ID"])
                             if sb_id_r:
                                 from db import rescicao_atualizar
@@ -5700,6 +5727,8 @@ def pagina_orcamento():
                             st.error("❌ Erro ao salvar orçamento no Supabase.")
 
         if st.button("🗑️ Limpar importação", key="btn_limpar"):
+            _pedir_confirmacao("orc_limpar")
+        if _confirmou_exclusao("orc_limpar", "a planilha importada (o que não foi salvo será perdido)"):
             st.session_state.orcamento_df_raw = None
             st.session_state.orcamento_mapped = None
             st.session_state.orcamento_nome   = None
@@ -6719,6 +6748,8 @@ def pagina_medicao():
                 mid = med_opts[sel_label]
                 row_m = df_med_obra[df_med_obra["SB_ID"] == mid].iloc[0]
                 if st.button("🗑️ Excluir esta medição", key="med_del", type="secondary"):
+                    _pedir_confirmacao(f"med_{mid}")
+                if _confirmou_exclusao(f"med_{mid}", f"a medição {sel_label}"):
                     if sync.medicao_delete(mid):
                         sync.medicoes_load.clear()
                         st.rerun()
