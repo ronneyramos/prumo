@@ -158,6 +158,46 @@ def _init():
         st.session_state["_alertas_verificados"] = True
 
 
+def _destinatarios_alerta() -> tuple[list[str], str]:
+    """E-mails que recebem os alertas da empresa logada (admins + e-mail da empresa)
+    e o nome da empresa. RLS garante que só venham dados da própria empresa."""
+    from db import sb
+    eid = st.session_state.get("empresa_id")
+    emails, nome = [], ""
+    try:
+        emp = sb().table("empresas").select("nome, email").eq("id", eid).execute().data
+        if emp:
+            nome = emp[0].get("nome") or ""
+            if emp[0].get("email"):
+                emails.append(emp[0]["email"])
+        admins = sb().table("empresa_membros").select("user_id").eq("empresa_id", eid).eq("role", "admin").execute().data
+        ids = [a["user_id"] for a in admins or []]
+        if ids:
+            perfis = sb().table("profiles").select("email").in_("id", ids).execute().data
+            emails += [p["email"] for p in perfis or [] if p.get("email")]
+    except Exception as e:
+        print(f"[alertas] destinatários: {e}")
+    return list(dict.fromkeys(emails)), nome
+
+
+def _enviar_alertas_ui(alertas: dict, key: str):
+    """Botão de envio do resumo de alertas para os destinatários da empresa."""
+    import alertas as _alrt
+    dest, nome = _destinatarios_alerta()
+    if not _alrt.email_configurado():
+        st.caption("Envio de e-mail não configurado na plataforma.")
+        return
+    if not dest:
+        st.caption("Nenhum destinatário: cadastre um administrador ou o e-mail da empresa.")
+        return
+    if st.button("📧 Enviar email de alertas", key=key, type="primary",
+                 help="Destinatários: " + ", ".join(dest)):
+        if _alrt.enviar_resumo_alertas(alertas, dest, nome):
+            st.success(f"✅ Alertas enviados para {', '.join(dest)}")
+        else:
+            st.warning("Nenhum alerta para enviar ou falha no envio.")
+
+
 def _obras_validas(df: pd.DataFrame) -> pd.DataFrame:
     """Filtra apenas obras que têm SB_ID (UUID válido no Supabase)."""
     if df.empty or "SB_ID" not in df.columns:
@@ -1396,8 +1436,10 @@ def pagina_dev_panel():
                 try:
                     from alertas import _enviar_email
                     ok = _enviar_email(
-                        assunto="[Prumo ERP] Teste do Painel do Desenvolvedor",
-                        corpo="Este é um e-mail de teste enviado do Painel do Desenvolvedor.\n\nSe você recebeu esta mensagem, a configuração de e-mail está funcionando corretamente."
+                        "[Prumo ERP] Teste do Painel do Desenvolvedor",
+                        "<p>Este é um e-mail de teste enviado do Painel do Desenvolvedor.</p>"
+                        "<p>Se você recebeu esta mensagem, a configuração de e-mail está funcionando.</p>",
+                        [email_to],
                     )
                     if ok:
                         _dev_log("info", "email", f"E-mail de teste enviado para {email_to}")
@@ -1579,16 +1621,8 @@ def _dash_alert_banner():
         if _n_est:  _partes.append(f"📦 {_n_est} insumo(s) em estoque crítico")
         st.warning(f"**⚠️ {_total_al} alerta(s) ativo(s):** " + " | ".join(_partes))
         _b1, _b2, _ = st.columns([1, 1, 4])
-        if _b1.button("📧 Enviar email de alertas", key="btn_enviar_alertas", type="primary"):
-            try:
-                import alertas as _alrt_send
-                ok = _alrt_send.enviar_resumo_alertas(_al_cache)
-                if ok:
-                    st.success("✅ Email de alertas enviado para ronneyramos123@gmail.com!")
-                else:
-                    st.error("❌ Erro ao enviar email. Verifique as credenciais no .env")
-            except Exception as _e_email:
-                st.error(f"❌ Erro: {_e_email}")
+        with _b1:
+            _enviar_alertas_ui(_al_cache, key="btn_enviar_alertas")
         if _b2.button("🔄 Rever alertas", key="btn_rever_alertas"):
             st.session_state["_alertas_verificados"] = False
             st.rerun()
@@ -2403,7 +2437,7 @@ def pagina_suprimentos():
 
             ra, rb = st.columns(2)
             if ra.button("✅ Aprovar — dar saída no estoque", type="primary", key="btn_req_ap"):
-                usuario = st.session_state.get("user_email", "gestor")
+                usuario = (st.session_state.get("usuario") or {}).get("email") or "gestor"
                 # 1. Supabase
                 if sb_id_req:
                     try:
@@ -2438,18 +2472,30 @@ def pagina_suprimentos():
                                    "Quantidade": row_req.Quantidade, "Obra": row_req.Obra,
                                    "Responsável": row_req.Solicitante, "NF/Doc": "REQ"}])
                 ], ignore_index=True)
-                # 5. E-mail de notificação
+                # 4b. Persiste a saída no banco (antes só existia na sessão)
                 try:
-                    from alertas import _enviar_email
-                    if not _enviar_email(
-                        assunto=f"[Prumo ERP] Requisição Aprovada — {row_req.Insumo}",
-                        corpo=(f"Requisição aprovada por {usuario}.\n\n"
-                               f"Insumo: {row_req.Insumo}\nQuantidade: {row_req.Quantidade} {row_req.Unidade}\n"
-                               f"Obra: {row_req.Obra}\nSolicitante: {row_req.Solicitante}")
-                    ):
-                        st.warning("Requisição aprovada, mas falhou envio de e-mail.")
+                    _ok_req = sync.estoque_movimento_save(
+                        {"Insumo": row_req.Insumo, "Unidade": getattr(row_req, "Unidade", "un"),
+                         "Tipo": "Saída", "Quantidade": row_req.Quantidade,
+                         "Observação": f"REQ {row_req.ID} — {row_req.Solicitante}"},
+                        _obra_uuid(row_req.Obra) if _obra_valida(row_req.Obra) else None)
                 except Exception:
-                    st.warning("Requisição aprovada, mas falhou envio de e-mail.")
+                    _ok_req = False
+                if not _ok_req:
+                    _notify("⚠️ Requisição aprovada, mas a saída de estoque não foi gravada no banco.")
+                # 5. E-mail de notificação para os administradores da empresa
+                try:
+                    from alertas import _enviar_email, email_configurado
+                    _dest_req, _ = _destinatarios_alerta()
+                    if email_configurado() and _dest_req:
+                        _enviar_email(
+                            f"[Prumo ERP] Requisição Aprovada — {row_req.Insumo}",
+                            (f"<p>Requisição aprovada por {usuario}.</p>"
+                             f"<p><b>Insumo:</b> {row_req.Insumo}<br><b>Quantidade:</b> {row_req.Quantidade} {row_req.Unidade}"
+                             f"<br><b>Obra:</b> {row_req.Obra}<br><b>Solicitante:</b> {row_req.Solicitante}</p>"),
+                            _dest_req)
+                except Exception as _e_req_mail:
+                    print(f"[requisição] e-mail: {_e_req_mail}")
                 st.rerun()
             if rb.button("❌ Reprovar", key="btn_req_rep"):
                 if sb_id_req:
@@ -6883,20 +6929,12 @@ def pagina_notificacoes():
 
     with tab_config:
         st.markdown("##### Disparo de Notificações por Email")
-        st.caption("Configurado via variáveis de ambiente (ALERT_EMAIL_FROM, ALERT_EMAIL_PASSWORD, ALERT_EMAIL_TO)")
-        from_env = os.environ.get("ALERT_EMAIL_TO", "não configurado")
-        st.code(f"Destinatário: {from_env}", language="text")
+        _dest, _ = _destinatarios_alerta()
+        st.caption("Os alertas vão para os administradores da empresa e para o e-mail cadastrado da empresa.")
+        st.code("Destinatários: " + (", ".join(_dest) if _dest else "nenhum"), language="text")
         re1, re2 = st.columns(2)
-        if re1.button("📧 Enviar resumo de alertas agora", type="primary", key="notif_send"):
-            try:
-                import alertas as _alrt_s
-                ok = _alrt_s.enviar_resumo_alertas(_al_cache)
-                if ok:
-                    st.success("✅ Email enviado!")
-                else:
-                    st.warning("Nenhum alerta ou erro no envio.")
-            except Exception as _e_s:
-                st.error(f"❌ {_e_s}")
+        with re1:
+            _enviar_alertas_ui(_al_cache, key="notif_send")
         if re2.button("🔄 Re-verificar alertas", key="notif_recheck"):
             st.session_state["_alertas_verificados"] = False
             st.rerun()

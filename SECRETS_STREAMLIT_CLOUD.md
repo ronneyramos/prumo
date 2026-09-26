@@ -21,7 +21,6 @@ SUPABASE_ANON_KEY = "sua_anon_key"
 SUPABASE_SERVICE_KEY = "sua_service_key"
 ALERT_EMAIL_FROM = "seu_email@gmail.com"
 ALERT_EMAIL_PASSWORD = "sua_senha_app"
-ALERT_EMAIL_TO = "destinatario@gmail.com"
 ```
 
 > ⚠️ Copie os valores reais do arquivo `streamlit/.env` da sua máquina.
