@@ -41,6 +41,9 @@ Thumbs.db
 *.log
 node_modules/
 
+# ── Backups locais com dados das empresas — NUNCA subir ─────
+backups/
+
 # ── Temporários ─────────────────────────────────────────────
 *.tmp
 *.bak
