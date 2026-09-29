@@ -141,12 +141,14 @@ def obra_save(dados: dict, sb_id: str | None = None) -> str | None:
         return None
 
 
-def obra_delete(sb_id: str):
+def obra_delete(sb_id: str) -> bool:
     try:
         from db import obra_excluir
         obra_excluir(sb_id)
+        return True
     except Exception:
         print("[sync.obra_delete] ERRO:\n", traceback.format_exc())
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -169,6 +171,20 @@ _STATUS_SB = {
 _STATUS_APP_PAGAR   = {"Previsto": "A Pagar",  "Pago": "Pago",     "Cancelado": "Cancelado", "Aprovado": "A Pagar"}
 _STATUS_APP_RECEBER = {"Previsto": "A Receber", "Pago": "Recebido", "Cancelado": "Cancelado", "Aprovado": "A Receber"}
 
+# Status que não entram em custo, receita nem projeção
+STATUS_FORA_DO_CALCULO = ("Cancelado",)
+
+
+def status_com_vencimento(status_app: str, vencimento_br: str) -> str:
+    """"Vencido" não é gravado no banco: é "A Pagar"/"A Receber" com vencimento passado."""
+    if status_app not in ("A Pagar", "A Receber"):
+        return status_app
+    try:
+        venc = datetime.strptime(str(vencimento_br)[:10], "%d/%m/%Y").date()
+    except (TypeError, ValueError):
+        return status_app
+    return "Vencido" if venc < datetime.now().date() else status_app
+
 
 @_cache_por_empresa(ttl=60, show_spinner="Carregando lancamentos...")
 def lancamentos_load(tipo: str, _empresa_ignorado: str = "") -> pd.DataFrame:
@@ -186,14 +202,15 @@ def lancamentos_load(tipo: str, _empresa_ignorado: str = "") -> pd.DataFrame:
             obras_nested = _attr(row, "obras", default={}) or {}
             obra_nome    = obras_nested.get("nome", "") if isinstance(obras_nested, dict) else ""
             status_sb    = _attr(row, "status", default="Previsto")
+            vencimento   = _iso_to_br(_attr(row, "data_vencimento"))
             base = {
                 "ID":         i,
                 "SB_ID":      _attr(row, "id"),
                 "Obra":       obra_nome,
                 "Descrição":  _attr(row, "descricao"),
                 "Valor (R$)": float(_attr(row, "valor", default=0) or 0),
-                "Vencimento": _iso_to_br(_attr(row, "data_vencimento")),
-                "Status":     status_map.get(status_sb, status_sb),
+                "Vencimento": vencimento,
+                "Status":     status_com_vencimento(status_map.get(status_sb, status_sb), vencimento),
                 "eap_item_id": _attr(row, "eap_item_id", default=None),
                 "tipo_custo":  _attr(row, "tipo_custo", default=None),
             }
@@ -246,21 +263,27 @@ def lancamento_save(dados: dict, tipo: str,
         return None
 
 
-def lancamento_status_update(sb_id: str, status_app: str):
+def lancamento_status_update(sb_id: str, status_app: str) -> bool:
     """Atualiza apenas o status de um lançamento."""
     try:
         from db import lancamento_atualizar
-        lancamento_atualizar(sb_id, {"status": _STATUS_SB.get(status_app, "Previsto")})
+        payload = {"status": _STATUS_SB.get(status_app, "Previsto")}
+        if payload["status"] == "Pago":
+            payload["data_pagamento"] = datetime.now().strftime("%Y-%m-%d")
+        return bool(lancamento_atualizar(sb_id, payload))
     except Exception:
         print("[sync.lancamento_status_update] ERRO:\n", traceback.format_exc())
+        return False
 
 
-def lancamento_delete(sb_id: str):
+def lancamento_delete(sb_id: str) -> bool:
     try:
         from db import sb
-        sb().table("lancamentos").delete().eq("id", sb_id).execute()
+        res = sb().table("lancamentos").delete().eq("id", sb_id).execute()
+        return bool(res.data)
     except Exception:
         print("[sync.lancamento_delete] ERRO:\n", traceback.format_exc())
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -311,7 +334,7 @@ def colaboradores_load(_empresa_ignorado: str = "") -> pd.DataFrame:
                 "Obra":         obra_nome,
                 "Salário (R$)": float(_attr(row, "salario", default=0) or 0),
                 "Admissão":     _iso_to_br(_attr(row, "admissao")),
-                "Situação":     "Ativo" if _attr(row, "ativo", default=True) else "Inativo",
+                "Situação":     _attr(row, "situacao", default="Ativo") or "Ativo",
             })
         return pd.DataFrame(rows)
     except Exception:
@@ -325,20 +348,27 @@ def colaborador_save(dados: dict, sb_id: str | None = None) -> str | None:
         from db import sb as _sb
         eid = _empresa_id()
 
-        payload = {
-            "nome":          dados.get("Nome", ""),
-            "funcao":        dados.get("Cargo") or None,
-            "tipo_contrato": dados.get("Tipo Contrato", "CLT"),
-            "salario":       float(dados.get("Salário (R$)", 0) or 0),
-            "admissao":      _br_to_iso(dados.get("Admissão")),
-            "ativo":         dados.get("Situação", "Ativo") == "Ativo",
-            "empresa_id":    eid,
+        # Em edição só vão os campos informados: salvar só a Situação (ação em
+        # lote) não pode zerar nome, salário e cargo.
+        campos = {
+            "Nome":          ("nome",          lambda v: v or ""),
+            "Cargo":         ("funcao",        lambda v: v or None),
+            "Tipo Contrato": ("tipo_contrato", lambda v: v or "CLT"),
+            "Salário (R$)":  ("salario",       lambda v: float(v or 0)),
+            "Admissão":      ("admissao",      _br_to_iso),
+            "Situação":      ("situacao",      lambda v: v or "Ativo"),
         }
+        payload = {col: conv(dados[k]) for k, (col, conv) in campos.items()
+                   if k in dados or not sb_id}
+        # "ativo = false" é só para quem foi excluído do sistema
+        if not sb_id:
+            payload["ativo"] = True
+            payload["empresa_id"] = eid
 
         obra_nome = dados.get("Obra") or ""
         if obra_nome and not obra_nome.startswith("(") and obra_nome != "Custo Geral":
             payload["obra_alocada"] = obra_nome
-        elif sb_id:
+        elif sb_id and "Obra" in dados:
             payload["obra_alocada"] = obra_nome or None
 
         res = colaborador_atualizar(sb_id, payload) if sb_id else colaborador_criar(payload)
@@ -473,7 +503,7 @@ def ncs_load(_empresa_ignorado: str = "") -> pd.DataFrame:
                 "Obra":           obra_nome,
                 "Descrição":      _attr(row, "descricao") or _attr(row, "titulo"),
                 "Gravidade":      _SEV_TO_APP.get(_attr(row, "severidade", default="Alta"), "Alta"),
-                "Responsável":    _attr(row, "responsavel_id", default=""),
+                "Responsável":    _attr(row, "responsavel_nome", default="") or "",
                 "Status":         _attr(row, "status", default="Aberta"),
                 "Prazo":          _iso_to_br(_attr(row, "prazo")),
                 "Ação Corretiva": _attr(row, "acao_corretiva"),
@@ -497,6 +527,7 @@ def nc_save(dados: dict, obra_sb_id: str | None = None,
             "status":         dados.get("Status", "Aberta"),
             "prazo":          _br_to_iso(dados.get("Prazo")),
             "acao_corretiva": dados.get("Ação Corretiva") or None,
+            "responsavel_nome": dados.get("Responsável") or None,
             "empresa_id":     _empresa_id(),
         }
         res = nc_atualizar(sb_id, payload) if sb_id else nc_criar(payload)
@@ -504,6 +535,18 @@ def nc_save(dados: dict, obra_sb_id: str | None = None,
     except Exception:
         print("[sync.nc_save] ERRO:\n", traceback.format_exc())
         return None
+
+
+def nc_status_update(sb_id: str, status: str) -> bool:
+    """Muda só o status da NC (e marca/desmarca a data de encerramento)."""
+    try:
+        from db import nc_atualizar
+        payload = {"status": status,
+                   "encerrada_em": datetime.now().isoformat() if status == "Encerrada" else None}
+        return bool(nc_atualizar(sb_id, payload))
+    except Exception:
+        print("[sync.nc_status_update] ERRO:\n", traceback.format_exc())
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -707,6 +750,29 @@ def medicao_itens_save(medicao_id: str, itens: list[dict]) -> bool:
     except Exception:
         print("[sync.medicao_itens_save] ERRO:\n", traceback.format_exc())
         return False
+
+
+def medicao_itens_acumulados(obra_sb_id: str) -> dict[str, dict]:
+    """Acumulado por item da EAP na última medição itemizada da obra.
+
+    {eap_item_id: {"qtd": qtd_acumulada, "valor": valor_acumulado}} — base para
+    calcular só o que foi executado no período da nova medição.
+    """
+    try:
+        from db import sb as _sb
+        meds = _sb().table("medicoes").select("id").eq("obra_id", obra_sb_id) \
+                    .is_("deleted_at", None).order("numero", desc=True).execute().data or []
+        for m in meds:
+            itens = _sb().table("medicao_itens").select("eap_item_id, qtd_acumulada, valor_acumulado") \
+                         .eq("medicao_id", m["id"]).execute().data or []
+            if itens:
+                return {str(i["eap_item_id"]): {"qtd": float(i.get("qtd_acumulada") or 0),
+                                                "valor": float(i.get("valor_acumulado") or 0)}
+                        for i in itens if i.get("eap_item_id")}
+        return {}
+    except Exception:
+        print("[sync.medicao_itens_acumulados] ERRO:\n", traceback.format_exc())
+        return {}
 
 
 def medicao_ultimo_pct(obra_sb_id: str) -> float:
@@ -1215,6 +1281,11 @@ def orcamento_save(obra_sb_id: str, nome: str, versao: int,
         child_rows = []
         ordem_to_parent_id = {}
         for it in itens:
+            # Etapas também são gravadas (quantidade e preço zerados) para a EAP
+            # gerada a partir do orçamento salvo manter a hierarquia
+            if it.get("tipo") == "ETAPA":
+                parent_rows.append({**it, "quantidade": 0, "preco_custo": 0})
+                continue
             if it.get("tipo") != "ITEM":
                 continue
             composicao_ref = it.get("composicao_id") or None
@@ -1259,6 +1330,12 @@ def orcamento_save(obra_sb_id: str, nome: str, versao: int,
         return None
 
 
+def _chave_ordem(ordem) -> tuple:
+    """Ordenação natural de códigos de EAP: 1, 1.2, 1.10, 2, 10 (texto puro põe 10 antes de 2)."""
+    partes = str(ordem or "").split(".")
+    return tuple((0, int(p), "") if p.isdigit() else (1, 0, p) for p in partes)
+
+
 @_cache_por_empresa(ttl=60, show_spinner="Carregando orcamentos...")
 def orcamento_load(_empresa_ignorado: str = "") -> list[dict]:
     """Carrega todos os orçamentos com itens."""
@@ -1270,24 +1347,34 @@ def orcamento_load(_empresa_ignorado: str = "") -> list[dict]:
         for o in orcs.data or []:
             bdi_dec = float(o.get("bdi", 0) or 0)
             bdi_fator = 1.0 + bdi_dec
-            itens_raw = sb().table("orcamento_itens").select("*").eq("orcamento_id", o["id"]).order("ordem").execute()
+            itens_raw = sb().table("orcamento_itens").select("*").eq("orcamento_id", o["id"]).execute()
             itens = []
-            for i in itens_raw.data or []:
+            pilha = {}  # nível → descrição da etapa, para refazer etapa_pai
+            for i in sorted(itens_raw.data or [], key=lambda r: _chave_ordem(r.get("ordem"))):
                 qtd = float(i.get("quantidade", 0) or 0)
                 pu_custo = float(i.get("preco_unit", 0) or 0)
+                ordem = str(i.get("ordem", "") or "")
+                nivel = len(ordem.split(".")) if ordem else 1
+                eh_etapa = qtd == 0 and pu_custo == 0
+                if eh_etapa:
+                    pilha = {k: v for k, v in pilha.items() if k < nivel}
+                    pilha[nivel] = i.get("descricao", "")
+                    pai = pilha.get(nivel - 1, "")
+                else:
+                    pai = pilha[max(pilha)] if pilha else ""
                 pu_venda = round(pu_custo * bdi_fator, 4)
-                tot_custo = round(qtd * pu_custo, 2)
-                tot_venda = round(qtd * pu_venda, 2)
                 itens.append({
-                    "ordem":        i.get("ordem", ""),
+                    "ordem":        ordem,
                     "descricao":    i.get("descricao", ""),
-                    "unidade":      i.get("unidade", ""),
-                    "quantidade":   qtd,
-                    "preco_custo":  pu_custo,
-                    "preco_venda":  pu_venda,
-                    "total_custo":  tot_custo,
-                    "total_venda":  tot_venda,
-                    "tipo":         "ITEM",
+                    "unidade":      i.get("unidade", "") if not eh_etapa else "",
+                    "quantidade":   qtd if not eh_etapa else None,
+                    "preco_custo":  pu_custo if not eh_etapa else None,
+                    "preco_venda":  pu_venda if not eh_etapa else None,
+                    "total_custo":  round(qtd * pu_custo, 2) if not eh_etapa else None,
+                    "total_venda":  round(qtd * pu_venda, 2) if not eh_etapa else None,
+                    "tipo":         "ETAPA" if eh_etapa else "ITEM",
+                    "nivel":        nivel,
+                    "etapa_pai":    pai,
                 })
             result.append({
                 "id":             o["id"],
@@ -1311,36 +1398,66 @@ def orcamento_load(_empresa_ignorado: str = "") -> list[dict]:
 # ── EAP ──────────────────────────────────────────────────────────────────────
 
 
-def eap_save_from_orcamento(obra_sb_id: str, itens: list[dict]) -> bool:
-    """Gera/atualiza a EAP de uma obra a partir dos itens de orçamento."""
+def eap_save_from_orcamento(obra_sb_id: str, itens: list[dict]) -> dict:
+    """Gera/atualiza a EAP de uma obra a partir dos itens de orçamento.
+
+    Atualiza pelo código (obra_id + codigo é único): etapas que continuam
+    mantêm id, progresso, datas e os lançamentos ligados a elas. Etapas que
+    saíram do orçamento só são apagadas se nada estiver ligado a elas.
+    Retorna {"novos", "atualizados", "removidos", "mantidos"}.
+    """
     from db import sb
     eid = _empresa_id()
-    # Remove EAP existente
-    sb().table("eap_itens").delete().eq("obra_id", obra_sb_id).execute()
-    # Insere itens — codigo vazio vira "ORD_<ordem>" para evitar violar unique
-    rows = []
+    rows, vistos = [], set()
     ordem = 0
     for it in itens:
         _desc = it.get("descricao", "")
         if not _desc:
             continue
-        cod = str(it.get("ordem", "") or "")
-        if not cod:
-            cod = f"ORD_{ordem:04d}"
+        # codigo vazio vira "ORD_<ordem>" para não violar o unique
+        cod = str(it.get("ordem", "") or "") or f"ORD_{ordem:04d}"
+        if cod in vistos:  # código repetido na planilha: o 2º ganha sufixo
+            cod = f"{cod}_{ordem:04d}"
+        vistos.add(cod)
         rows.append({
-            "obra_id":       obra_sb_id,
-            "codigo":        cod,
-            "descricao":     _desc,
-            "unidade":       it.get("unidade", ""),
-            "qtd_prevista":  float(it.get("quantidade", 0) or 0),
+            "obra_id":        obra_sb_id,
+            "codigo":         cod,
+            "descricao":      _desc,
+            "unidade":        it.get("unidade", ""),
+            "qtd_prevista":   float(it.get("quantidade", 0) or 0),
             "valor_previsto": float(it.get("total_venda", 0) or 0),
-            "ordem":         ordem,
-            "empresa_id":    eid,
+            "ordem":          ordem,
+            "empresa_id":     eid,
         })
         ordem += 1
-    if rows:
-        sb().table("eap_itens").insert(rows).execute()
-    return True
+
+    existentes = {e["codigo"]: e["id"] for e in
+                  (sb().table("eap_itens").select("id, codigo").eq("obra_id", obra_sb_id).execute().data or [])}
+    novos = [r for r in rows if r["codigo"] not in existentes]
+    atualizar = [r for r in rows if r["codigo"] in existentes]
+    for r in atualizar:
+        campos = {k: v for k, v in r.items() if k not in ("obra_id", "codigo", "empresa_id")}
+        sb().table("eap_itens").update(campos).eq("id", existentes[r["codigo"]]).execute()
+    if novos:
+        sb().table("eap_itens").insert(novos).execute()
+
+    # Saíram do orçamento: apaga só as que não têm nada ligado
+    saiu = [i for c, i in existentes.items() if c not in vistos]
+    ligados = set()
+    for tabela, coluna in (("lancamentos", "eap_item_id"), ("requisicoes", "eap_item_id"),
+                           ("medicao_itens", "eap_item_id"), ("inspecoes", "eap_id")):
+        if saiu:
+            try:
+                res = sb().table(tabela).select(coluna).in_(coluna, saiu).execute().data or []
+                ligados |= {r[coluna] for r in res}
+            except Exception:
+                ligados |= set(saiu)  # na dúvida, não apaga
+    apagar = [i for i in saiu if i not in ligados]
+    if apagar:
+        sb().table("eap_itens").delete().in_("id", apagar).execute()
+    eap_load.clear()
+    return {"novos": len(novos), "atualizados": len(atualizar),
+            "removidos": len(apagar), "mantidos": len(saiu) - len(apagar)}
 
 
 @_cache_por_empresa(ttl=60, show_spinner="Carregando EAP...")
@@ -1816,9 +1933,12 @@ def conciliacao_save(dados: dict, sb_id: str | None = None) -> str | None:
         novo_id = res.get("id")
         itens = dados.get("itens", [])
         if itens and not sb_id:
-            for it in itens:
-                it["conciliacao_id"] = novo_id
-            conciliacao_itens_inserir(itens)
+            try:
+                conciliacao_itens_inserir([{**it, "conciliacao_id": novo_id} for it in itens])
+            except Exception:
+                # Sem os itens a conciliação não serve: desfaz o cabeçalho
+                conciliacao_delete(novo_id)
+                raise
         return novo_id
     except Exception:
         print("[sync.conciliacao_save] ERRO:\n", traceback.format_exc())
@@ -1833,18 +1953,56 @@ def conciliacao_delete(sb_id: str):
         print("[sync.conciliacao_delete] ERRO:\n", traceback.format_exc())
 
 
+def _valor_extrato(texto: str) -> float:
+    """Valor de extrato em qualquer formato comum: 1.234,56 · 1234,56 · 1234.56 · 1,234.56 · -R$ 10,00."""
+    import re
+    s = re.sub(r"[^\d,.\-]", "", str(texto or ""))
+    if not re.search(r"\d", s):
+        raise ValueError(texto)
+    negativo = s.startswith("-") or s.endswith("-")
+    s = s.strip("-")
+    if "," in s and "." in s:
+        # O separador que aparece por último é o decimal
+        s = s.replace(".", "").replace(",", ".") if s.rfind(",") > s.rfind(".") else s.replace(",", "")
+    elif "," in s:
+        s = s.replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(\.\d{3})+", s):
+        s = s.replace(".", "")          # 1.500 = mil e quinhentos
+    v = float(s)
+    return -v if negativo else v
+
+
+def _data_extrato(texto: str) -> str | None:
+    """dd/mm/aaaa, dd/mm/aa ou aaaa-mm-dd → aaaa-mm-dd."""
+    s = str(texto or "").strip()
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s[:10], fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
+
+
 def _parse_csv_extrato(content: str) -> list[dict]:
-    """Parse CSV de extrato bancário. Linhas: data, descricao, valor, tipo."""
+    """Parse CSV de extrato bancário. Colunas: data, descrição, valor, categoria (opcional).
+
+    Aceita separador ";" (padrão dos bancos brasileiros) ou ",", e ignora
+    cabeçalho e linhas de saldo sem data válida.
+    """
     import csv, io
-    reader = csv.reader(io.StringIO(content))
+    amostra = content[:2000]
+    delim = ";" if amostra.count(";") >= amostra.count("\n") else ","
+    reader = csv.reader(io.StringIO(content), delimiter=delim)
     transacoes = []
     for row in reader:
         if len(row) < 3:
             continue
-        data = row[0].strip()
+        data = _data_extrato(row[0])
         desc = row[1].strip()
+        if not data:
+            continue
         try:
-            val = float(row[2].replace(".", "").replace(",", "."))
+            val = _valor_extrato(row[2])
         except ValueError:
             continue
         tipo = "Credito" if val >= 0 else "Debito"
