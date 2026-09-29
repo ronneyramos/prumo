@@ -176,7 +176,8 @@ def alocacao_finalizar(alocacao_id: str, data_fim: str):
 # ── FINANCEIRO — LANÇAMENTOS ─────────────────────────────────────────────────
 
 def lancamentos_listar(tipo: str = None) -> pd.DataFrame:
-    q = sb().table("lancamentos").select("*, obras(nome)").order("data_vencimento")
+    q = sb().table("lancamentos").select("*, obras(nome)").is_("deleted_at", None) \
+        .order("data_vencimento")
     if tipo:
         q = q.eq("tipo", tipo)
     res = q.execute()

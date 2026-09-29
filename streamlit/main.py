@@ -5,6 +5,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime, time, timedelta, timezone
 import io
+import traceback
 import unicodedata
 import importlib
 import sync
@@ -83,6 +84,15 @@ def _obra_uuid(obra_nome: str) -> str | None:
 
 def _load_supabase_data(emp_id: str) -> bool:
     """Carrega todos os datasets do Supabase em série."""
+    # Os *_load devolvem tabela vazia quando dão erro. Sem este teste, banco fora do
+    # ar (ou projeto pausado) aparecia como "empresa sem nenhum dado".
+    try:
+        db.sb().table("obras").select("id").limit(1).execute()
+    except Exception as _e_con:
+        print(f"[_init] banco inacessível: {_e_con}")
+        st.error("❌ Não foi possível conectar ao banco de dados. Os dados não foram carregados — "
+                 "não faça lançamentos agora. Tente **🔄 Atualizar dados** em alguns minutos.")
+        return False
     _cargas = [
         ("obras",          sync.obras_load,          emp_id),
         ("contas_pagar",   sync.lancamentos_load,    "PAGAR", emp_id),
@@ -258,6 +268,47 @@ def _show_toast():
 def _sem_id(df: pd.DataFrame) -> pd.DataFrame:
     """Remove colunas ID e SB_ID do DataFrame se existirem."""
     return df.drop(columns=[c for c in ["ID", "SB_ID"] if c in df.columns], errors="ignore")
+
+
+_AJUDA_VENCIDO = "“Vencido” é automático: conta em aberto com vencimento no passado."
+
+
+def _erro_gravacao(o_que: str):
+    """Avisa que nada foi gravado. Usar no lugar da mensagem de sucesso quando o save devolve None."""
+    st.error(f"❌ Não foi possível salvar {o_que} no banco. Nada foi gravado — confira a conexão e tente de novo.")
+
+
+def _lancamentos_validos(df: pd.DataFrame) -> pd.DataFrame:
+    """Lançamentos que contam em custo, receita e projeção (sem os cancelados)."""
+    if df.empty or "Status" not in df.columns:
+        return df.copy()
+    return df[~df["Status"].isin(sync.STATUS_FORA_DO_CALCULO)].copy()
+
+
+def _atualizar_status_lanc(chave: str, ids: list, status: str) -> bool:
+    """Grava o novo status no banco e só então na sessão. Devolve False (com aviso) se algo falhou."""
+    df = st.session_state[chave]
+    falhas = []
+    for int_id in ids:
+        uuid_l = _sb_id(df, int_id)
+        if not uuid_l or not sync.lancamento_status_update(uuid_l, status):
+            falhas.append(int_id)
+            continue
+        ix = df.index[df["ID"] == int_id]
+        venc = df.loc[ix[0], "Vencimento"] if len(ix) else ""
+        df.loc[ix, "Status"] = sync.status_com_vencimento(status, venc)
+    if falhas:
+        _erro_gravacao(f"o status de {len(falhas)} lançamento(s)")
+        return False
+    return True
+
+
+def _funcionarios_ativos() -> pd.DataFrame:
+    """Funcionários que ainda contam para folha, ponto e custo (exclui demitidos)."""
+    f = st.session_state.get("funcionarios", pd.DataFrame())
+    if f.empty or "Situação" not in f.columns:
+        return f.copy()
+    return f[f["Situação"] != "Demitido"].copy()
 
 
 def _uniq(series) -> list:
@@ -593,7 +644,8 @@ def _auth_login():
                         cli.table("plataforma_admins").select("user_id").eq("user_id", res.user.id).execute().data)
                 except Exception:
                     st.session_state.plataforma_admin = False
-                if role in ("engenheiro", "adm_obra", "suprimentos", "qualidade"):
+                # Inclui o contratante: sem isso o Portal dele ficava sempre vazio
+                if role not in ("admin", "financeiro", "rh", "visualizador"):
                     try:
                         obras_res = cli.table("usuario_obras").select("obra_id").eq("user_id", res.user.id).execute()
                         st.session_state.usuario_obras_ids = [r["obra_id"] for r in (obras_res.data or [])]
@@ -804,16 +856,46 @@ def _limite_obras_atingido() -> bool:
     qtd = len(st.session_state.obras) if not st.session_state.obras.empty else 0
     return qtd >= max_o
 
+# Perfis que existem no banco (enum app_role). "gestor" não existe lá: convidar
+# alguém como gestor falhava ao gravar o vínculo com a empresa.
+_PERFIS = ["admin", "engenheiro", "adm_obra", "financeiro", "suprimentos",
+           "qualidade", "rh", "visualizador", "contratante"]
+
+
+def _pode_editar_obra() -> bool:
+    """Cadastrar/alterar/excluir obra e mexer na EAP."""
+    return _role() in ("admin", "engenheiro", "adm_obra", "financeiro")
+
+
+def _pode_medir() -> bool:
+    """Registrar/excluir medição (gera conta a receber)."""
+    return _role() in ("admin", "engenheiro", "adm_obra", "financeiro")
+
+
 def _obras_filtradas(df_obras: pd.DataFrame) -> pd.DataFrame:
-    """Retorna só as obras que o usuário pode ver (filtra por usuario_obras_ids quando não é admin/financeiro)."""
-    if _role() in ("admin", "financeiro", "visualizador"):
+    """Só as obras que o usuário pode ver.
+
+    Admin, financeiro, rh e visualizador veem todas. Os demais veem as obras
+    vinculadas; sem nenhuma vinculada, veem todas ("deixe vazio para todas" no
+    convite) — exceto o contratante, que só vê as obras dele.
+    """
+    if _role() in ("admin", "financeiro", "rh", "visualizador"):
         return df_obras
     ids_permitidos = st.session_state.get("usuario_obras_ids", [])
     if not ids_permitidos:
-        return df_obras.iloc[0:0]
+        return df_obras.iloc[0:0] if _role() == "contratante" else df_obras
     if "SB_ID" not in df_obras.columns:
         return df_obras
     return df_obras[df_obras["SB_ID"].isin(ids_permitidos)].reset_index(drop=True)
+
+
+def _filtrar_por_obras_visiveis(df: pd.DataFrame, col: str = "Obra") -> pd.DataFrame:
+    """Restringe um DataFrame com coluna de nome de obra às obras que o usuário vê."""
+    todas = st.session_state.get("obras", pd.DataFrame())
+    visiveis = _obras_filtradas(todas)
+    if df.empty or col not in df.columns or len(visiveis) == len(todas):
+        return df
+    return df[df[col].isin(visiveis["Nome"])].copy()
 
 
 # ── Administração ────────────────────────────────────────────────────────────
@@ -825,6 +907,7 @@ def pagina_admin():
 
     from db import sb, sb_admin
     _init()
+    _show_toast()
     st.title("⚙️ Administração")
     _minha_empresa = st.session_state.get("empresa_id")
 
@@ -859,9 +942,9 @@ def pagina_admin():
                 inv_nome  = c1.text_input("Nome completo *")
                 inv_email = c2.text_input("E-mail *")
                 inv_senha = c1.text_input("Senha *", type="password", placeholder="Mínimo 6 caracteres")
-                inv_role  = c2.selectbox("Perfil *", ["admin","engenheiro","financeiro","suprimentos","qualidade","rh","visualizador","gestor","contratante"])
+                inv_role  = c2.selectbox("Perfil *", _PERFIS)
                 inv_obras = st.multiselect(
-                    "Obras com acesso (deixe vazio para todas)",
+                    "Obras com acesso (vazio = todas; contratante precisa de pelo menos uma)",
                     options=st.session_state.obras["SB_ID"].tolist() if not st.session_state.obras.empty else [],
                     format_func=lambda x: st.session_state.obras.loc[st.session_state.obras["SB_ID"] == x, "Nome"].iloc[0] if x in st.session_state.obras["SB_ID"].values else x,
                 )
@@ -870,6 +953,10 @@ def pagina_admin():
                 if submitted:
                     if not inv_nome or not inv_email or not inv_senha:
                         st.error("Preencha nome, e-mail e senha.")
+                    elif len(inv_senha) < 6:
+                        st.error("A senha precisa ter no mínimo 6 caracteres.")
+                    elif inv_role == "contratante" and not inv_obras:
+                        st.error("Selecione as obras que o contratante vai acompanhar.")
                     else:
                         admin = sb_admin()
                         if not admin:
@@ -883,7 +970,9 @@ def pagina_admin():
                                     "user_metadata": {"full_name": inv_nome},
                                 })
                                 uid = resp.user.id
-                                # Vincula à empresa de quem convidou + perfil (service_role)
+                                # Vincula à empresa de quem convidou + perfil + obras (service_role).
+                                # Se qualquer parte falhar, desfaz tudo: um login sem empresa
+                                # não consegue entrar e bloqueia o e-mail para um novo convite.
                                 try:
                                     admin.table("empresa_membros").insert({
                                         "user_id": uid, "empresa_id": _minha_empresa, "role": inv_role,
@@ -891,17 +980,24 @@ def pagina_admin():
                                     admin.table("user_roles").insert({
                                         "user_id": uid, "role": inv_role, "empresa_id": _minha_empresa,
                                     }).execute()
-                                except Exception as role_e:
-                                    st.warning(f"Usuário criado, mas falha ao vincular à empresa: {role_e}")
-                                # Vincula obras (usa service_role)
-                                if inv_obras:
-                                    try:
+                                    if inv_obras:
                                         admin.table("usuario_obras").insert([
                                             {"user_id": uid, "obra_id": oid} for oid in inv_obras
                                         ]).execute()
-                                    except Exception as obras_e:
-                                        st.warning(f"Usuário criado, mas falha ao vincular obras: {obras_e}")
-                                st.success(f"✅ Usuário {inv_nome} criado com sucesso!")
+                                except Exception as role_e:
+                                    print(f"[convite] vínculo: {role_e}")
+                                    for _t in ("usuario_obras", "user_roles", "empresa_membros"):
+                                        try:
+                                            admin.table(_t).delete().eq("user_id", uid).execute()
+                                        except Exception:
+                                            pass
+                                    try:
+                                        admin.auth.admin.delete_user(uid)
+                                    except Exception as _e_del:
+                                        print(f"[convite] desfazer usuário: {_e_del}")
+                                    st.error(f"Não foi possível vincular o usuário à empresa; o convite foi desfeito. ({role_e})")
+                                    st.stop()
+                                _notify(f"✅ Usuário {inv_nome} criado! Envie a ele o e-mail e a senha.")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Erro ao criar usuário: {e}")
@@ -939,11 +1035,12 @@ def pagina_admin():
                             # Role
                             novas_roles = st.multiselect(
                                 "Perfis",
-                                ["admin","engenheiro","financeiro","suprimentos","qualidade","rh","visualizador","gestor","contratante"],
-                                default=roles,
+                                _PERFIS,
+                                default=[r for r in roles if r in _PERFIS],
                                 key=f"role_{uid}",
                             )
                             # Obras
+                            novas_obras = []
                             if not st.session_state.obras.empty:
                                 obras_atuais = []
                                 try:
@@ -955,13 +1052,18 @@ def pagina_admin():
                                     "Obras com acesso",
                                     options=st.session_state.obras["SB_ID"].tolist(),
                                     format_func=lambda x: st.session_state.obras.loc[st.session_state.obras["SB_ID"] == x, "Nome"].iloc[0],
-                                    default=obras_atuais,
+                                    default=[o for o in obras_atuais if o in set(st.session_state.obras["SB_ID"])],
                                     key=f"obras_{uid}",
                                 )
                             if st.button("Salvar", key=f"save_{uid}", type="primary"):
                                 # Atualiza roles (usa service_role para bypassar RLS)
                                 _adm = sb_admin()
-                                if not _adm:
+                                _eu = (st.session_state.get("usuario") or {}).get("id")
+                                if not novas_roles:
+                                    st.error("Escolha pelo menos um perfil.")
+                                elif uid == _eu and "admin" not in novas_roles:
+                                    st.error("Você não pode tirar o seu próprio perfil de administrador.")
+                                elif not _adm:
                                     st.error("service_role não configurada no .env")
                                 else:
                                     removidas = [r for r in roles if r not in novas_roles]
@@ -978,7 +1080,8 @@ def pagina_admin():
                                             _adm.table("empresa_membros").update({"role": novas_roles[0]}) \
                                                 .eq("user_id", uid).eq("empresa_id", _minha_empresa).execute()
                                     except Exception as e:
-                                        st.error(f"Erro ao atualizar roles: {e}")
+                                        st.error(f"Erro ao atualizar perfis: {e}")
+                                        st.stop()
                                     # Obras: só as da própria empresa (lista vem do session_state já filtrado)
                                     _obras_empresa = set(st.session_state.obras["SB_ID"].dropna().astype(str))
                                     try:
@@ -989,8 +1092,9 @@ def pagina_admin():
                                             _adm.table("usuario_obras").insert(_ins).execute()
                                     except Exception as e:
                                         st.error(f"Erro ao atualizar obras: {e}")
-                                st.success("Permissões atualizadas!")
-                                st.rerun()
+                                        st.stop()
+                                    _notify("✅ Permissões atualizadas! Valem no próximo login do usuário.")
+                                    st.rerun()
 
     # ===== TAB 2: ASSINATURA ==================================================
     with tabs[1]:
@@ -1181,7 +1285,6 @@ def pagina_dev_panel():
     # TAB 2 — USUÁRIOS
     # ═══════════════════════════════════════════════════════════════════
     with tab_users:
-        _PERFIS = ["admin","engenheiro","financeiro","suprimentos","qualidade","rh","visualizador","gestor","contratante"]
         try:
             profiles = sb().table("profiles").select("id, nome, email, created_at").order("created_at").execute()
             roles_raw = sb().table("user_roles").select("user_id, role").execute()
@@ -1680,10 +1783,10 @@ def pagina_dashboard():
     STATUS_CORES = {"Em andamento": "#2B59C3", "Paralisada": "#E74C3C",
                     "Concluída": "#27AE60", "Planejamento": "#F39C12", "Cancelada": "#95A5A6"}
 
-    obras_df  = st.session_state.obras.copy()
-    contas_df = st.session_state.contas_pagar.copy()
-    func_df   = st.session_state.funcionarios.copy()
-    est_df    = st.session_state.estoque.copy()
+    obras_df  = _obras_filtradas(st.session_state.obras.copy())
+    contas_df = _filtrar_por_obras_visiveis(_lancamentos_validos(st.session_state.contas_pagar))
+    func_df   = _filtrar_por_obras_visiveis(_funcionarios_ativos())
+    est_df    = _filtrar_por_obras_visiveis(st.session_state.estoque.copy())
     hoje      = date.today()
 
     contas_df["Valor (R$)"] = pd.to_numeric(contas_df["Valor (R$)"], errors="coerce").fillna(0.0)
@@ -1838,8 +1941,8 @@ def pagina_dashboard():
         st.markdown('</div>', unsafe_allow_html=True)
         st.markdown('<div class="dash-card">', unsafe_allow_html=True)
         st.markdown('<div class="dash-card-header">💰 Fluxo de Caixa Mensal</div>', unsafe_allow_html=True)
-        cp_fc = st.session_state.contas_pagar.copy()
-        cr_fc = st.session_state.contas_receber.copy()
+        cp_fc = _filtrar_por_obras_visiveis(_lancamentos_validos(st.session_state.contas_pagar))
+        cr_fc = _filtrar_por_obras_visiveis(_lancamentos_validos(st.session_state.contas_receber))
         cp_fc["Valor (R$)"] = cp_fc["Valor (R$)"].apply(_to_num)
         cr_fc["Valor (R$)"] = cr_fc["Valor (R$)"].apply(_to_num)
         cp_fc["mes"] = pd.to_datetime(cp_fc["Vencimento"], dayfirst=True, errors="coerce").dt.to_period("M")
@@ -2060,8 +2163,8 @@ def pagina_dashboard():
                 "mes_ref":        _mes_ref,
                 "obras":          st.session_state.obras.copy(),
                 "medicoes":       st.session_state.medicoes.copy(),
-                "contas_pagar":   st.session_state.contas_pagar.copy(),
-                "contas_receber": st.session_state.contas_receber.copy(),
+                "contas_pagar":   _lancamentos_validos(st.session_state.contas_pagar),
+                "contas_receber": _lancamentos_validos(st.session_state.contas_receber),
                 "ncs":            st.session_state.ncs.copy(),
                 "funcionarios":   st.session_state.funcionarios.copy(),
             }
@@ -2089,7 +2192,7 @@ def pagina_obras():
     aba = st.radio("Ação",["📋 Listagem","📏 Medições","➕ Nova Obra"],horizontal=True,label_visibility="collapsed")
 
     if aba == "📋 Listagem":
-        obras = st.session_state.obras.copy()
+        obras = _obras_filtradas(st.session_state.obras.copy())
         cf1,cf2 = st.columns(2)
         fs = cf1.selectbox("Status",["Todos"]+sorted([v for v in obras["Status"].unique() if pd.notna(v) and str(v).strip()]))
         fr = cf2.selectbox("Responsável",["Todos"]+sorted([v for v in obras["Responsável"].unique() if pd.notna(v) and str(v).strip()]))
@@ -2145,19 +2248,34 @@ def pagina_obras():
                         salvar  = b1.form_submit_button("💾 Salvar",type="primary")
                         excluir = b2.form_submit_button("🗑️ Excluir")
                     if salvar:
-                        idx = st.session_state.obras[st.session_state.obras["ID"]==id_sel].index[0]
-                        st.session_state.obras.loc[idx,["Nome","Tipo","Cliente","CNPJ Cliente","Endereço","Responsável","Valor Contrato (R$)","BDI (%)","Início","Término","% Físico","Status"]] = [nome,tipo,cliente,cnpj,end,resp,valor,bdi,ini,term,pct,stat]
-                        try: sync.obra_save({"Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Responsável":resp,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat}, sb_id=_sb_id(st.session_state.obras, id_sel))
-                        except Exception: st.warning("Obra salva localmente, mas falhou sincronização com servidor.")
-                        _notify(f"✅ Obra **{nome}** atualizada com sucesso!"); st.rerun()
+                        _uuid_ed = _sb_id(st.session_state.obras, id_sel)
+                        if not _pode_editar_obra():
+                            st.error("Seu perfil não pode alterar obras.")
+                        elif not nome.strip():
+                            st.error("O nome da obra é obrigatório.")
+                        elif not _uuid_ed or not sync.obra_save({"Nome":nome,"Tipo":tipo,"Cliente":cliente,"CNPJ Cliente":cnpj,"Endereço":end,"Responsável":resp,"Valor Contrato (R$)":valor,"BDI (%)":bdi,"Início":ini,"Término":term,"% Físico":pct,"Status":stat}, sb_id=_uuid_ed):
+                            _erro_gravacao("a obra")
+                        else:
+                            idx = st.session_state.obras[st.session_state.obras["ID"]==id_sel].index[0]
+                            st.session_state.obras.loc[idx,["Nome","Tipo","Cliente","CNPJ Cliente","Endereço","Responsável","Valor Contrato (R$)","BDI (%)","Início","Término","% Físico","Status"]] = [nome,tipo,cliente,cnpj,end,resp,valor,bdi,ini,term,pct,stat]
+                            if nome != L["Nome"]:
+                                # Tudo na sessão referencia a obra pelo nome: recarrega do banco
+                                st.cache_data.clear()
+                                st.session_state.pop("_erp_init_done", None)
+                            _notify(f"✅ Obra **{nome}** atualizada com sucesso!"); st.rerun()
                     if excluir:
-                        _pedir_confirmacao(f"obra_{id_sel}")
+                        if _pode_editar_obra():
+                            _pedir_confirmacao(f"obra_{id_sel}")
+                        else:
+                            st.error("Seu perfil não pode excluir obras.")
                     if _confirmou_exclusao(f"obra_{id_sel}", f"a obra {L['Nome']}"):
                         _nome_exc = L["Nome"]
                         uuid_exc = _sb_id(st.session_state.obras, id_sel)
-                        st.session_state.obras = st.session_state.obras[st.session_state.obras["ID"]!=id_sel].reset_index(drop=True)
-                        if uuid_exc: sync.obra_delete(uuid_exc)
-                        _notify(f"✅ Obra **{_nome_exc}** removida!"); st.rerun()
+                        if not uuid_exc or not sync.obra_delete(uuid_exc):
+                            st.error("❌ Não foi possível excluir a obra no banco. Nada foi alterado.")
+                        else:
+                            st.session_state.obras = st.session_state.obras[st.session_state.obras["ID"]!=id_sel].reset_index(drop=True)
+                            _notify(f"✅ Obra **{_nome_exc}** removida!"); st.rerun()
     elif aba == "📏 Medições":
         st.subheader("Histórico de Medições")
         med_df = st.session_state.medicoes.copy()
@@ -2239,69 +2357,8 @@ def pagina_obras():
                         st.error(f"Erro ao gerar PDF: {_e_bm}")
 
         st.markdown("---")
-        st.subheader("Registrar Nova Medição")
-        st.caption("A medição atualiza o **% Físico** da obra e gera automaticamente uma **Conta a Receber** no Financeiro.")
-        obras_med = _obras_nomes()
-        obra_med = st.selectbox("Obra *", obras_med, key="med_obra_sel")
-        with st.form("form_medicao"):
-            c1, c2 = st.columns(2)
-            periodo_med = campo_mes("Período *", key="med_periodo", container=c1)
-            pct_med_inp = c2.number_input("% Medido (acumulado da obra) *", min_value=0.0, max_value=100.0, step=0.5, value=0.0,
-                                           help="Informe o % físico ACUMULADO total da obra até este período.")
-            obs_med     = c1.text_input("Observação")
-            venc_med    = campo_data("Vencimento do BM", date.today() + timedelta(days=15), container=c2)
-            ok_med = st.form_submit_button("📏 Registrar Medição", type="primary")
-        if ok_med:
-            if obra_med.startswith("("):
-                st.error("Cadastre uma obra antes de registrar medições.")
-            elif pct_med_inp <= 0:
-                st.error("Informe o % medido acumulado.")
-            else:
-                # Valor contrato da obra
-                ob_row = st.session_state.obras[st.session_state.obras["Nome"] == obra_med]
-                val_contrato_med = _to_num(ob_row["Valor Contrato (R$)"].iloc[0]) if not ob_row.empty else 0.0
-                # Percentual anterior (para calcular incremento)
-                med_ant = st.session_state.medicoes[st.session_state.medicoes["Obra"] == obra_med]
-                pct_anterior = _to_num(med_ant["% Medido"].max()) if not med_ant.empty else 0.0
-                pct_incremento = max(0.0, pct_med_inp - pct_anterior)
-                valor_med = round(val_contrato_med * pct_incremento / 100, 2)
-                # 1. Salva medição (local + Supabase)
-                nova_med = {"ID": _next_id(st.session_state.medicoes),
-                            "Data": date.today().strftime("%d/%m/%Y"),
-                            "Obra": obra_med, "Período": periodo_med,
-                            "% Medido": pct_med_inp, "Valor Medido (R$)": valor_med,
-                            "Observação": obs_med}
-                _uuid_med_sb = sync.medicao_save(nova_med, _obra_uuid(obra_med))
-                nova_med["SB_ID"] = _uuid_med_sb or ""
-                st.session_state.medicoes = pd.concat([
-                    st.session_state.medicoes,
-                    pd.DataFrame([nova_med])
-                ], ignore_index=True)
-                # 2. Atualiza % Físico na obra
-                idx_ob = st.session_state.obras[st.session_state.obras["Nome"] == obra_med].index
-                if len(idx_ob):
-                    st.session_state.obras.loc[idx_ob[0], "% Físico"] = int(pct_med_inp)
-                    _uuid_ob = _sb_id(st.session_state.obras, st.session_state.obras.loc[idx_ob[0], "ID"])
-                    if _uuid_ob:
-                        try:
-                            from db import sb as _sb
-                            _sb().table("obras").update({"pct_fisico": int(pct_med_inp)}).eq("id", _uuid_ob).execute()
-                        except Exception:
-                            st.warning("Não foi possível sincronizar % físico com o servidor.")
-                # 3. Conta a Receber
-                if valor_med > 0:
-                    dados_bm = {"Obra": obra_med, "Cliente": ob_row["Cliente"].iloc[0] if not ob_row.empty else "",
-                                "Descrição": f"BM {periodo_med} — {pct_incremento:.1f}% — {obra_med}",
-                                "Valor (R$)": valor_med, "Vencimento": venc_med, "Status": "A Receber"}
-                    uuid_bm = sync.lancamento_save(dados_bm, "RECEBER", _obra_uuid(obra_med))
-                    st.session_state.contas_receber = pd.concat([
-                        st.session_state.contas_receber,
-                        pd.DataFrame([{"ID": _next_id(st.session_state.contas_receber),
-                                       "SB_ID": uuid_bm or None, **dados_bm}])
-                    ], ignore_index=True)
-                st.success(f"✅ Medição registrada! {obra_med} avançou para **{pct_med_inp:.0f}%** físico. "
-                           + (f"Conta a Receber de **{_fmt(valor_med)}** gerada." if valor_med > 0 else ""))
-                st.rerun()
+        st.info("Para registrar uma nova medição use o menu **📏 Medição** — ela calcula o valor do período "
+                "pela EAP e gera a conta a receber.")
     else:
         if _limite_obras_atingido():
             info = _plano_info()
@@ -2326,7 +2383,9 @@ def pagina_obras():
             stat   = c2.selectbox("Status",["Planejamento","Em andamento","Paralisada","Concluída","Cancelada"])
             ok = st.form_submit_button("➕ Cadastrar",type="primary")
         if ok:
-            if _limite_obras_atingido():
+            if not _pode_editar_obra():
+                st.error("Seu perfil não pode cadastrar obras.")
+            elif _limite_obras_atingido():
                 info = _plano_info()
                 st.error(f"🚫 Limite de **{info.get('max_obras')} obra(s)** do plano **{info.get('plano_slug','').title()}** atingido.")
             elif not nome or not cliente: st.error("Nome e Cliente obrigatórios.")
@@ -2508,7 +2567,7 @@ def pagina_suprimentos():
             )
 
     elif aba == "📝 Requisições":
-        req = st.session_state.requisicoes.copy()
+        req = _filtrar_por_obras_visiveis(st.session_state.requisicoes.copy())
         badges = {"Aprovada": "🟢", "Pendente": "🟡", "Reprovada": "🔴"}
 
         # ── Filtros ────────────────────────────────────────────────────
@@ -2555,13 +2614,10 @@ def pagina_suprimentos():
             ra, rb = st.columns(2)
             if ra.button("✅ Aprovar — dar saída no estoque", type="primary", key="btn_req_ap"):
                 usuario = (st.session_state.get("usuario") or {}).get("email") or "gestor"
-                # 1. Supabase
-                if sb_id_req:
-                    try:
-                        from sync import requisicao_status_update
-                        requisicao_status_update(sb_id_req, "Aprovada", usuario)
-                    except Exception:
-                        pass
+                # 1. Supabase (sem gravar a aprovação, não mexe em mais nada)
+                if not sb_id_req or not sync.requisicao_status_update(sb_id_req, "Aprovada", usuario):
+                    _erro_gravacao("a aprovação da requisição")
+                    st.stop()
                 # 2. Session state
                 mask_ss = st.session_state.requisicoes["ID"] == row_req.ID
                 st.session_state.requisicoes.loc[mask_ss, "Status"]      = "Aprovada"
@@ -2615,12 +2671,9 @@ def pagina_suprimentos():
                     print(f"[requisição] e-mail: {_e_req_mail}")
                 st.rerun()
             if rb.button("❌ Reprovar", key="btn_req_rep"):
-                if sb_id_req:
-                    try:
-                        from sync import requisicao_status_update
-                        requisicao_status_update(sb_id_req, "Reprovada")
-                    except Exception:
-                        pass
+                if not sb_id_req or not sync.requisicao_status_update(sb_id_req, "Reprovada"):
+                    _erro_gravacao("a reprovação da requisição")
+                    st.stop()
                 mask_ss = st.session_state.requisicoes["ID"] == row_req.ID
                 st.session_state.requisicoes.loc[mask_ss, "Status"] = "Reprovada"
                 st.info("Requisição reprovada.")
@@ -2662,12 +2715,13 @@ def pagina_suprimentos():
                          "Insumo": insumo_r, "Quantidade": qtd_r, "Unidade": un_r,
                          "Solicitante": sol_r, "Observação": obs_r,
                          "eap_item_id": eap_item_id_r, "tipo_custo": tipo_custo_r or None}
-            sb_id_novo = None
-            try:
-                from sync import requisicao_save
-                sb_id_novo = requisicao_save(dados_req)
-            except Exception:
-                pass
+            if not _obra_valida(obra_r) or not str(insumo_r).strip():
+                st.error("Selecione a obra e o insumo.")
+                st.stop()
+            sb_id_novo = sync.requisicao_save(dados_req)
+            if not sb_id_novo:
+                _erro_gravacao("a requisição")
+                st.stop()
             novo = {"ID": _next_id(st.session_state.requisicoes), "SB_ID": sb_id_novo,
                     "Status": "Pendente", "Aprovado Por": "", "Data Aprovação": "", **dados_req}
             st.session_state.requisicoes = pd.concat(
@@ -2824,6 +2878,9 @@ def pagina_suprimentos():
                                "Condição Pag.": cond_c, "Prazo Entrega": str(prazo_c),
                                "Total (R$)": total, "Vencedora": "Não", "Observação": obs_c}
                     sb_id_c = cotacao_save(dados_c, itens_data)
+                    if not sb_id_c:
+                        _erro_gravacao("a cotação")
+                        st.stop()
                     st.session_state.cotacoes = pd.concat([
                         st.session_state.cotacoes,
                         pd.DataFrame([{"ID": _next_id(st.session_state.cotacoes), "SB_ID": sb_id_c or None, **dados_c}])
@@ -2903,6 +2960,9 @@ def pagina_suprimentos():
                     dados_f = {"Razão Social": rz, "Nome Fantasia": fn, "CNPJ": cnpj,
                                "Email": email, "Telefone": tel, "Endereço": end, "Categoria": cat, "Ativo": "Sim"}
                     sb_id_f = fornecedor_save(dados_f)
+                    if not sb_id_f:
+                        _erro_gravacao("o fornecedor")
+                        st.stop()
                     st.session_state.fornecedores = pd.concat([
                         st.session_state.fornecedores,
                         pd.DataFrame([{"ID": _next_id(st.session_state.fornecedores), "SB_ID": sb_id_f or None, **dados_f}])
@@ -3369,19 +3429,19 @@ def pagina_suprimentos():
                                "Descrição": desc_cp, "Categoria": "Materiais",
                                "Valor (R$)": val_nf, "Vencimento": venc_nf,
                                "Status": "A Pagar", "NF": num_nf, "Forma Pag.": forma_nf}
-                try:
-                    uuid_cp_nf = sync.lancamento_save(dados_cp_nf, "PAGAR", _obra_uuid(obra_nf))
-                except Exception:
-                    uuid_cp_nf = None
-                st.session_state.contas_pagar = pd.concat([
-                    st.session_state.contas_pagar,
-                    pd.DataFrame([{"ID": _next_id(st.session_state.contas_pagar),
-                                   "SB_ID": uuid_cp_nf or None, **dados_cp_nf}])
-                ], ignore_index=True)
-                st.success(
-                    f"✅ Entrada registrada! Conta a Pagar de **{_fmt(val_nf)}** "
-                    f"gerada para **{forn_nf.strip()}** — venc. {venc_nf} via {forma_nf}."
-                )
+                uuid_cp_nf = sync.lancamento_save(dados_cp_nf, "PAGAR", _obra_uuid(obra_nf))
+                if uuid_cp_nf:
+                    dados_cp_nf["Status"] = sync.status_com_vencimento("A Pagar", venc_nf)
+                    st.session_state.contas_pagar = pd.concat([
+                        st.session_state.contas_pagar,
+                        pd.DataFrame([{"ID": _next_id(st.session_state.contas_pagar),
+                                       "SB_ID": uuid_cp_nf, **dados_cp_nf}])
+                    ], ignore_index=True)
+                    _notify(f"✅ Entrada registrada! Conta a Pagar de **{_fmt(val_nf)}** "
+                            f"gerada para **{forn_nf.strip()}** — venc. {venc_nf} via {forma_nf}.")
+                else:
+                    st.session_state["_toast_pending"] = (
+                        "⚠️ Entrada de estoque registrada, mas a conta a pagar NÃO foi criada — lance no Financeiro.", "⚠️")
                 st.rerun()
 
 
@@ -3458,44 +3518,41 @@ def pagina_financeiro():
                         st.markdown(f"#### ✏️ {LP['Fornecedor']} — {LP.get('Descrição','')}")
                         ca, cb = st.columns(2)
                         with ca:
-                            st_opts_p = ["Pago","A Pagar","Vencido","Cancelado"]
+                            st_opts_p = ["Pago","A Pagar","Cancelado"]
+                            _st_atual_p = "A Pagar" if LP["Status"] == "Vencido" else LP["Status"]
                             ns_p = st.selectbox("Novo Status", st_opts_p,
-                                                 index=st_opts_p.index(LP["Status"]) if LP["Status"] in st_opts_p else 0,
-                                                 key="ns_cp")
+                                                 index=st_opts_p.index(_st_atual_p) if _st_atual_p in st_opts_p else 0,
+                                                 key="ns_cp", help=_AJUDA_VENCIDO)
                             if st.button("✅ Atualizar", key="btn_cp", type="primary"):
-                                ix = st.session_state.contas_pagar[st.session_state.contas_pagar["ID"]==LP["ID"]].index[0]
-                                st.session_state.contas_pagar.loc[ix,"Status"] = ns_p
-                                uuid_cp = _sb_id(st.session_state.contas_pagar, LP["ID"])
-                                if uuid_cp: sync.lancamento_status_update(uuid_cp, ns_p)
-                                _notify(f"✅ Status atualizado para **{ns_p}**!"); st.rerun()
+                                if _atualizar_status_lanc("contas_pagar", [LP["ID"]], ns_p):
+                                    _notify(f"✅ Status atualizado para **{ns_p}**!"); st.rerun()
                         with cb:
                             if st.button("🗑️ Excluir Lançamento", key="del_cp"):
                                 _pedir_confirmacao(f"cp_{LP['ID']}")
                         if _confirmou_exclusao(f"cp_{LP['ID']}", f"a conta a pagar {LP.get('Descrição', '')} ({_fmt(LP.get('Valor (R$)', 0))})"):
                             uuid_cp_del = _sb_id(st.session_state.contas_pagar, LP["ID"])
-                            st.session_state.contas_pagar = st.session_state.contas_pagar[
-                                st.session_state.contas_pagar["ID"] != LP["ID"]
-                            ].reset_index(drop=True)
-                            if uuid_cp_del: sync.lancamento_delete(uuid_cp_del)
-                            _notify("✅ Lançamento excluído com sucesso!"); st.rerun()
+                            if not uuid_cp_del or not sync.lancamento_delete(uuid_cp_del):
+                                st.error("❌ Não foi possível excluir no banco. Nada foi alterado.")
+                            else:
+                                st.session_state.contas_pagar = st.session_state.contas_pagar[
+                                    st.session_state.contas_pagar["ID"] != LP["ID"]
+                                ].reset_index(drop=True)
+                                _notify("✅ Lançamento excluído com sucesso!"); st.rerun()
                 else:
                     # Ação em lote
                     cols_lote = st.columns([2, 2, 1])
                     with cols_lote[0]:
                         st.caption(f"**{n_sel}** lançamento(s) selecionado(s)")
                     with cols_lote[1]:
-                        novo_status_lote = st.selectbox("Novo Status", ["Pago", "A Pagar", "Vencido", "Cancelado"], key="ns_lote_cp")
+                        novo_status_lote = st.selectbox("Novo Status", ["Pago", "A Pagar", "Cancelado"],
+                                                        key="ns_lote_cp", help=_AJUDA_VENCIDO)
                     with cols_lote[2]:
                         st.write("")
                         st.write("")
                         if st.button("✅ Aplicar em Lote", key="btn_lote_cp", type="primary"):
-                            for idx, row in sel_cp.iterrows():
-                                st.session_state.contas_pagar.loc[idx, "Status"] = novo_status_lote
-                                uuid_cp = _sb_id(st.session_state.contas_pagar, row["ID"])
-                                if uuid_cp:
-                                    sync.lancamento_status_update(uuid_cp, novo_status_lote)
-                            _notify(f"✅ {n_sel} lançamento(s) atualizados para **{novo_status_lote}**!")
-                            st.rerun()
+                            if _atualizar_status_lanc("contas_pagar", sel_cp["ID"].tolist(), novo_status_lote):
+                                _notify(f"✅ {n_sel} lançamento(s) atualizados para **{novo_status_lote}**!")
+                                st.rerun()
 
     # ── Contas a Receber ──────────────────────────────────────────────
     with tab_rc:
@@ -3534,46 +3591,41 @@ def pagina_financeiro():
                         st.markdown(f"#### ✏️ {LR['Cliente']} — {LR.get('Descrição','')}")
                         ca_r, cb_r = st.columns(2)
                         with ca_r:
-                            st_opts_r = ["Recebido","A Receber","Vencido","Cancelado"]
+                            st_opts_r = ["Recebido","A Receber","Cancelado"]
+                            _st_atual_r = "A Receber" if LR["Status"] == "Vencido" else LR["Status"]
                             ns_r = st.selectbox("Novo Status", st_opts_r,
-                                                 index=st_opts_r.index(LR["Status"]) if LR["Status"] in st_opts_r else 0,
-                                                 key="ns_cr")
+                                                 index=st_opts_r.index(_st_atual_r) if _st_atual_r in st_opts_r else 0,
+                                                 key="ns_cr", help=_AJUDA_VENCIDO)
                             if st.button("✅ Atualizar", key="btn_cr", type="primary"):
-                                ix_r = st.session_state.contas_receber[
-                                    st.session_state.contas_receber["ID"] == LR["ID"]
-                                ].index[0]
-                                st.session_state.contas_receber.loc[ix_r,"Status"] = ns_r
-                                uuid_cr = _sb_id(st.session_state.contas_receber, LR["ID"])
-                                if uuid_cr: sync.lancamento_status_update(uuid_cr, ns_r)
-                                _notify(f"✅ Status atualizado para **{ns_r}**!"); st.rerun()
+                                if _atualizar_status_lanc("contas_receber", [LR["ID"]], ns_r):
+                                    _notify(f"✅ Status atualizado para **{ns_r}**!"); st.rerun()
                         with cb_r:
                             if st.button("🗑️ Excluir", key="del_cr"):
                                 _pedir_confirmacao(f"cr_{LR['ID']}")
                         if _confirmou_exclusao(f"cr_{LR['ID']}", f"a conta a receber {LR.get('Descrição', '')} ({_fmt(LR.get('Valor (R$)', 0))})"):
                             uuid_cr_del = _sb_id(st.session_state.contas_receber, LR["ID"])
-                            st.session_state.contas_receber = st.session_state.contas_receber[
-                                st.session_state.contas_receber["ID"] != LR["ID"]
-                            ].reset_index(drop=True)
-                            if uuid_cr_del: sync.lancamento_delete(uuid_cr_del)
-                            _notify("✅ Lançamento excluído com sucesso!"); st.rerun()
+                            if not uuid_cr_del or not sync.lancamento_delete(uuid_cr_del):
+                                st.error("❌ Não foi possível excluir no banco. Nada foi alterado.")
+                            else:
+                                st.session_state.contas_receber = st.session_state.contas_receber[
+                                    st.session_state.contas_receber["ID"] != LR["ID"]
+                                ].reset_index(drop=True)
+                                _notify("✅ Lançamento excluído com sucesso!"); st.rerun()
                 else:
                     # Ação em lote
                     cols_lote_r = st.columns([2, 2, 1])
                     with cols_lote_r[0]:
                         st.caption(f"**{n_sel_r}** lançamento(s) selecionado(s)")
                     with cols_lote_r[1]:
-                        novo_status_lote_r = st.selectbox("Novo Status", ["Recebido", "A Receber", "Vencido", "Cancelado"], key="ns_lote_cr")
+                        novo_status_lote_r = st.selectbox("Novo Status", ["Recebido", "A Receber", "Cancelado"],
+                                                          key="ns_lote_cr", help=_AJUDA_VENCIDO)
                     with cols_lote_r[2]:
                         st.write("")
                         st.write("")
                         if st.button("✅ Aplicar em Lote", key="btn_lote_cr", type="primary"):
-                            for idx, row in sel_cr.iterrows():
-                                st.session_state.contas_receber.loc[idx, "Status"] = novo_status_lote_r
-                                uuid_cr = _sb_id(st.session_state.contas_receber, row["ID"])
-                                if uuid_cr:
-                                    sync.lancamento_status_update(uuid_cr, novo_status_lote_r)
-                            _notify(f"✅ {n_sel_r} lançamento(s) atualizados para **{novo_status_lote_r}**!")
-                            st.rerun()
+                            if _atualizar_status_lanc("contas_receber", sel_cr["ID"].tolist(), novo_status_lote_r):
+                                _notify(f"✅ {n_sel_r} lançamento(s) atualizados para **{novo_status_lote_r}**!")
+                                st.rerun()
 
     # ── Novo Lançamento ───────────────────────────────────────────────
     with tab_novo:
@@ -3611,28 +3663,41 @@ def pagina_financeiro():
             ok_l = st.form_submit_button("➕ Adicionar", type="primary")
         if ok_l:
             obra_uuid_l = _obra_uuid(obra_l)
-            if tipo_l == "Conta a Pagar":
+            _tipo_msg = "Conta a Pagar" if tipo_l == "Conta a Pagar" else "Conta a Receber"
+            if not obra_uuid_l:
+                st.error("Selecione uma obra cadastrada.")
+            elif val_l <= 0:
+                st.error("Informe um valor maior que zero.")
+            elif tipo_l == "Conta a Pagar":
                 dados_cp = {"Obra": obra_l, "Fornecedor": contra, "Descrição": desc_l,
                             "Categoria": cat_l, "Valor (R$)": val_l, "Vencimento": venc_l,
                             "Status": "A Pagar", "NF": nf_l, "Forma Pag.": forma_l,
                             "eap_item_id": eap_item_id, "tipo_custo": tipo_custo_l}
                 uuid_l = sync.lancamento_save(dados_cp, "PAGAR", obra_uuid_l)
-                st.session_state.contas_pagar = pd.concat([
-                    st.session_state.contas_pagar,
-                    pd.DataFrame([{"ID": _next_id(st.session_state.contas_pagar),
-                                   "SB_ID": uuid_l or None, **dados_cp}])
-                ], ignore_index=True)
+                if not uuid_l:
+                    _erro_gravacao("a conta a pagar")
+                else:
+                    dados_cp["Status"] = sync.status_com_vencimento("A Pagar", venc_l)
+                    st.session_state.contas_pagar = pd.concat([
+                        st.session_state.contas_pagar,
+                        pd.DataFrame([{"ID": _next_id(st.session_state.contas_pagar),
+                                       "SB_ID": uuid_l, **dados_cp}])
+                    ], ignore_index=True)
+                    _notify(f"✅ {_tipo_msg} de **{_fmt(val_l)}** para **{obra_l}** adicionada!"); st.rerun()
             else:
                 dados_cr = {"Obra": obra_l, "Cliente": contra, "Descrição": desc_l,
                             "Valor (R$)": val_l, "Vencimento": venc_l, "Status": "A Receber"}
                 uuid_l = sync.lancamento_save(dados_cr, "RECEBER", obra_uuid_l)
-                st.session_state.contas_receber = pd.concat([
-                    st.session_state.contas_receber,
-                    pd.DataFrame([{"ID": _next_id(st.session_state.contas_receber),
-                                   "SB_ID": uuid_l or None, **dados_cr}])
-                ], ignore_index=True)
-            _tipo_msg = "Conta a Pagar" if tipo_l == "Conta a Pagar" else "Conta a Receber"
-            _notify(f"✅ {_tipo_msg} de **{_fmt(val_l)}** para **{obra_l}** adicionada!"); st.rerun()
+                if not uuid_l:
+                    _erro_gravacao("a conta a receber")
+                else:
+                    dados_cr["Status"] = sync.status_com_vencimento("A Receber", venc_l)
+                    st.session_state.contas_receber = pd.concat([
+                        st.session_state.contas_receber,
+                        pd.DataFrame([{"ID": _next_id(st.session_state.contas_receber),
+                                       "SB_ID": uuid_l, **dados_cr}])
+                    ], ignore_index=True)
+                    _notify(f"✅ {_tipo_msg} de **{_fmt(val_l)}** para **{obra_l}** adicionada!"); st.rerun()
 
     # ── Custos por Obra ───────────────────────────────────────────────
     with tab_custo:
@@ -3640,7 +3705,7 @@ def pagina_financeiro():
         todas_obras_c = sorted(_obras_nomes())
         obra_c = st.selectbox("Selecione a Obra", todas_obras_c, key="custo_obra_sel")
 
-        cp = st.session_state.contas_pagar.copy()
+        cp = _lancamentos_validos(st.session_state.contas_pagar)
         if "Categoria" not in cp.columns:
             cp["Categoria"] = "Materiais"
         cp["Categoria"] = cp["Categoria"].fillna("Outros")
@@ -3653,7 +3718,7 @@ def pagina_financeiro():
         ].copy()
 
         # Custo de pessoal direto dos funcionários alocados à obra
-        ff_custo = st.session_state.funcionarios.copy()
+        ff_custo = _funcionarios_ativos()
         ff_custo["Salário (R$)"] = pd.to_numeric(ff_custo.get("Salário (R$)", 0), errors="coerce").fillna(0.0)
         ff_custo["Obra"] = ff_custo["Obra"].fillna("").replace("", "Sem alocação")
         folha_estimada = ff_custo[ff_custo["Obra"] == obra_c]["Salário (R$)"].sum() * 1.31
@@ -3732,7 +3797,7 @@ def pagina_financeiro():
         al_obra = st.selectbox("Obra", al_obras, key="al_obra_sel")
         if al_obra:
             al_uuid = _obra_uuid(al_obra)
-            df_cp = st.session_state.contas_pagar.copy()
+            df_cp = _lancamentos_validos(st.session_state.contas_pagar)
             df_cp_obra = df_cp[
                 (df_cp["Obra"] == al_obra) &
                 (df_cp["eap_item_id"].isna() | (df_cp["eap_item_id"].astype(str).isin(["", "None", "nan"])))
@@ -3789,9 +3854,9 @@ def pagina_financeiro():
             bdi = float(obra_row["BDI (%)"].iloc[0]) if not obra_row.empty and "BDI (%)" in obra_row.columns else 0
             pct_fis = float(obra_row["% Físico"].iloc[0]) if not obra_row.empty else 0
 
-            cp = st.session_state.contas_pagar.copy()
+            cp = _lancamentos_validos(st.session_state.contas_pagar)
             cp_obra = cp[cp["Obra"] == dre_sel].copy()
-            cr = st.session_state.contas_receber.copy()
+            cr = _lancamentos_validos(st.session_state.contas_receber)
             cr_obra = cr[cr["Obra"] == dre_sel].copy()
 
             def _soma_cp(cat):
@@ -3806,7 +3871,8 @@ def pagina_financeiro():
             custo_materiais = _soma_cp("Materiais")
             custo_folha = _soma_cp("Folha de Pagamento")
             custo_impostos = _soma_cp("Impostos")
-            custo_outros = _soma_cp("Outros")
+            # Tudo que não é das 3 categorias fixas (inclui "Mão-de-obra", "Material"... vindos do RDO)
+            custo_outros = cp_obra[~cp_obra["Categoria"].isin(["Materiais", "Folha de Pagamento", "Impostos"])]["Valor (R$)"].sum()
             custo_total = custo_materiais + custo_folha + custo_impostos + custo_outros
 
             custo_pago = cp_obra[cp_obra["Status"] == "Pago"]["Valor (R$)"].sum()
@@ -3915,8 +3981,8 @@ def pagina_financeiro():
         st.subheader("📊 Fluxo de Caixa Projetado")
         st.caption("Projeção de entradas e saídas com base nos lançamentos a pagar/receber.")
 
-        cp_fc = st.session_state.contas_pagar.copy()
-        cr_fc = st.session_state.contas_receber.copy()
+        cp_fc = _lancamentos_validos(st.session_state.contas_pagar)
+        cr_fc = _lancamentos_validos(st.session_state.contas_receber)
 
         # Filtro de obra
         fc_obras = ["Todas"] + sorted(_obras_nomes())
@@ -3935,24 +4001,33 @@ def pagina_financeiro():
             except Exception:
                 return None
 
-        # Projeção para 12 semanas
+        # Em aberto (a pagar/receber, vencidos ou não) com a data já convertida
+        def _em_aberto(df, status_aberto):
+            out = df[df["Status"].isin([status_aberto, "Vencido"])].copy()
+            out["_vd"] = out["Vencimento"].apply(_parse_data_br)
+            out["_v"] = out["Valor (R$)"].apply(_to_num)
+            return out[out["_vd"].notna()]
+
+        cr_ab = _em_aberto(cr_fc, "A Receber")
+        cp_ab = _em_aberto(cp_fc, "A Pagar")
+
+        def _soma_periodo(df, ini, fim):
+            return float(df[(df["_vd"] >= ini) & (df["_vd"] <= fim)]["_v"].sum()) if ini else \
+                   float(df[df["_vd"] <= fim]["_v"].sum())
+
+        # 1ª linha: tudo que já venceu e continua em aberto; depois 12 semanas
         fluxo_semanas = []
+        _atr_e = _soma_periodo(cr_ab, None, hoje - timedelta(days=1))
+        _atr_s = _soma_periodo(cp_ab, None, hoje - timedelta(days=1))
+        if _atr_e or _atr_s:
+            fluxo_semanas.append({"Semana": "Em atraso", "Entradas": _atr_e, "Saídas": _atr_s,
+                                  "Saldo": _atr_e - _atr_s})
         for s in range(12):
             sem_ini = hoje + timedelta(weeks=s)
             sem_fim = sem_ini + timedelta(days=6)
-            label = f"{sem_ini.strftime('%d/%b')} - {sem_fim.strftime('%d/%b')}"
-
-            entradas = 0
-            saidas = 0
-            for _, r in cr_fc.iterrows():
-                vd = _parse_data_br(r.get("Vencimento", ""))
-                if vd and sem_ini <= vd <= sem_fim and r.get("Status") in ("A Receber", "Vencido"):
-                    entradas += float(r.get("Valor (R$)", 0) or 0)
-            for _, r in cp_fc.iterrows():
-                vd = _parse_data_br(r.get("Vencimento", ""))
-                if vd and sem_ini <= vd <= sem_fim and r.get("Status") in ("A Pagar", "Vencido"):
-                    saidas += float(r.get("Valor (R$)", 0) or 0)
-
+            label = f"{sem_ini.strftime('%d/%m')} - {sem_fim.strftime('%d/%m')}"
+            entradas = _soma_periodo(cr_ab, sem_ini, sem_fim)
+            saidas = _soma_periodo(cp_ab, sem_ini, sem_fim)
             fluxo_semanas.append({"Semana": label, "Entradas": entradas, "Saídas": saidas,
                                   "Saldo": entradas - saidas})
 
@@ -3963,8 +4038,8 @@ def pagina_financeiro():
         total_entradas = df_fc["Entradas"].sum()
         total_saidas = df_fc["Saídas"].sum()
         saldo_projetado = total_entradas - total_saidas
-        k1.metric("Total Entradas (12 sem)", _fmt(total_entradas))
-        k2.metric("Total Saídas (12 sem)", _fmt(total_saidas))
+        k1.metric("Total Entradas (atraso + 12 sem)", _fmt(total_entradas))
+        k2.metric("Total Saídas (atraso + 12 sem)", _fmt(total_saidas))
         k3.metric("Saldo Projetado", _fmt(saldo_projetado),
                   delta_color="normal" if saldo_projetado >= 0 else "inverse")
 
@@ -4026,7 +4101,8 @@ def pagina_financeiro():
 
         with tab_import:
             st.markdown("##### Importar Extrato Bancário (CSV)")
-            st.caption("Formato: Data, Descrição, Valor, Categoria (opcional). Separador: vírgula. Use ponto ou vírgula como separador decimal.")
+            st.caption("Formato: Data, Descrição, Valor, Categoria (opcional). Separador: ponto e vírgula ou vírgula. "
+                       "Valores como 1.234,56 ou 1234.56 são aceitos.")
             st.caption("Valores positivos = Crédito (recebimento), negativos = Débito (pagamento).")
 
             csv_file = st.file_uploader("Selecione o arquivo CSV", type=["csv", "txt"], key="conc_csv")
@@ -4076,6 +4152,8 @@ def pagina_financeiro():
                         st.session_state.conciliacao_itens_temp = []
                         _notify(f"Conciliação salva! {len(_itens_conc)} transações importadas.")
                         st.rerun()
+                    else:
+                        _erro_gravacao("a conciliação")
 
         with tab_historico:
             try:
@@ -4331,147 +4409,160 @@ def pagina_pessoal():
     t1,t2,t3,t4,t5,t6,t7 = st.tabs(["👤 Funcionários","🕐 Ponto","💰 Folha","🌴 Férias","⚠️ Adicionais","📄 Rescisão","➕ Novo Funcionário"])
 
     with t1:
-        funcs = st.session_state.funcionarios.copy()
-        cf1,cf2 = st.columns(2)
-        fo_f = cf1.selectbox("Obra",    ["Todas"]+_uniq(funcs["Obra"]),   key="ff_ob")
-        fs_f = cf2.selectbox("Situação",["Todos"]+_uniq(funcs["Situação"]),key="ff_sit")
-        if fo_f != "Todas": funcs = funcs[funcs["Obra"]==fo_f]
-        if fs_f != "Todos": funcs = funcs[funcs["Situação"]==fs_f]
-        c1,c2,c3 = st.columns(3)
-        c1.metric("Total",   len(st.session_state.funcionarios))
-        c2.metric("Ativos",  len(st.session_state.funcionarios[st.session_state.funcionarios["Situação"]=="Ativo"]))
-        if _role() == "admin":
-            c3.metric("Folha Bruta", _fmt(st.session_state.funcionarios["Salário (R$)"].sum()))
-        st.markdown("---")
-        if funcs.empty:
-            st.info("Nenhum colaborador cadastrado. Use a aba ➕ Novo Colaborador.")
+        if not (_pode(["pessoal"])):
+            st.info("Disponível para os perfis Administração, RH e Financeiro.")
         else:
-            _sit_badge = {"Ativo":"🟢","Férias":"🔵","Afastado":"🟡","Demitido":"🔴"}
-            colunas_func = ["Nome","Cargo","Situação","Obra","Tipo Contrato","Admissão"]
-            fmts_func = {"Situação": lambda s: f"{_sit_badge.get(s,'⚪')} {s}"}
+            funcs = st.session_state.funcionarios.copy()
+            cf1,cf2 = st.columns(2)
+            fo_f = cf1.selectbox("Obra",    ["Todas"]+_uniq(funcs["Obra"]),   key="ff_ob")
+            fs_f = cf2.selectbox("Situação",["Todos"]+_uniq(funcs["Situação"]),key="ff_sit")
+            if fo_f != "Todas": funcs = funcs[funcs["Obra"]==fo_f]
+            if fs_f != "Todos": funcs = funcs[funcs["Situação"]==fs_f]
+            c1,c2,c3 = st.columns(3)
+            c1.metric("Total",   len(st.session_state.funcionarios))
+            c2.metric("Ativos",  len(st.session_state.funcionarios[st.session_state.funcionarios["Situação"]=="Ativo"]))
             if _role() == "admin":
-                colunas_func.insert(2, "Salário (R$)")
-                fmts_func["Salário (R$)"] = _fmt
-            LF = _tabela_clicavel(funcs, colunas_exibir=colunas_func, key="tbl_func", formatters=fmts_func,
-                                  selection_mode="multi-row")
-            st.download_button("⬇️ Exportar Excel", data=_export_excel(funcs.drop(columns=[c for c in ["ID","SB_ID"] if c in funcs.columns])),
-                                file_name="funcionarios.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="btn_xls_func")
+                c3.metric("Folha Bruta", _fmt(st.session_state.funcionarios["Salário (R$)"].sum()))
+            st.markdown("---")
+            if funcs.empty:
+                st.info("Nenhum colaborador cadastrado. Use a aba ➕ Novo Colaborador.")
+            else:
+                _sit_badge = {"Ativo":"🟢","Férias":"🔵","Afastado":"🟡","Demitido":"🔴"}
+                colunas_func = ["Nome","Cargo","Situação","Obra","Tipo Contrato","Admissão"]
+                fmts_func = {"Situação": lambda s: f"{_sit_badge.get(s,'⚪')} {s}"}
+                if _role() == "admin":
+                    colunas_func.insert(2, "Salário (R$)")
+                    fmts_func["Salário (R$)"] = _fmt
+                LF = _tabela_clicavel(funcs, colunas_exibir=colunas_func, key="tbl_func", formatters=fmts_func,
+                                      selection_mode="multi-row")
+                st.download_button("⬇️ Exportar Excel", data=_export_excel(funcs.drop(columns=[c for c in ["ID","SB_ID"] if c in funcs.columns])),
+                                    file_name="funcionarios.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="btn_xls_func")
 
-            if isinstance(LF, pd.DataFrame) and not LF.empty:
-                n_sel_f = len(LF)
-                st.markdown("---")
-                if n_sel_f == 1:
-                        _sf = LF.iloc[0]
-                        id_f = _sf["ID"]
-                        with st.container(border=True):
-                            st.markdown(f"#### ✏️ Editando: {_sf['Nome']}")
-                            obras_lista = ["Custo Geral"] + _obras_nomes(["Sede","Todas"])
-                            contrato_opts = ["CLT","MEI","Empreiteiro","Autônomo","Diarista","Estagiário"]
-                            ob_val_orig = str(_sf.get("Obra","") or "")
-                            with st.form("form_edit_func"):
-                                c1,c2 = st.columns(2)
-                                nome_f  = c1.text_input("Nome",  value=_sf["Nome"])
-                                cargo_f = c2.text_input("Cargo (livre)", value=str(_sf.get("Cargo","") or ""),
-                                                        help="Digite qualquer função: Pedreiro, Eletricista, Arquiteto, etc.")
-                                tc_idx  = contrato_opts.index(_sf.get("Tipo Contrato","CLT")) if _sf.get("Tipo Contrato","CLT") in contrato_opts else 0
-                                cont_f  = c1.selectbox("Tipo de Contrato", contrato_opts, index=tc_idx)
-                                ob_idx  = obras_lista.index(ob_val_orig) if ob_val_orig in obras_lista else 0
-                                obra_f  = c2.selectbox("Obra Alocada", obras_lista, index=ob_idx)
-                                if _role() == "admin":
-                                    sal_f = c1.number_input("Salário / Valor (R$)", value=_to_num(_sf["Salário (R$)"]),step=100.0)
-                                else:
-                                    sal_f = _to_num(_sf["Salário (R$)"])
-                                adm_f   = campo_data("Admissão", _sf.get("Admissão"), opcional=True, container=c2)
-                                sit_opts = ["Ativo","Férias","Afastado","Demitido"]
-                                sit_val = str(_sf.get("Situação","Ativo") or "Ativo")
-                                sit_f   = c1.selectbox("Situação", sit_opts,
-                                                        index=sit_opts.index(sit_val) if sit_val in sit_opts else 0)
-                                b1,b2,_ = st.columns([1,1,3])
-                                sv_f  = b1.form_submit_button("💾 Salvar",type="primary")
-                                del_f = b2.form_submit_button("🗑️ Excluir")
-                            if sv_f:
-                                ix_f = st.session_state.funcionarios[st.session_state.funcionarios["ID"]==id_f].index[0]
-                                st.session_state.funcionarios.loc[ix_f,
-                                    ["Nome","Cargo","Tipo Contrato","Obra","Salário (R$)","Admissão","Situação"]
-                                ] = [nome_f, cargo_f, cont_f, obra_f, sal_f, adm_f, sit_f]
-                                sb_uuid = _sb_id(st.session_state.funcionarios, id_f)
-                                if obra_f != ob_val_orig and sb_uuid:
-                                    data_transf = adm_f if adm_f else date.today().strftime("%d/%m/%Y")
-                                    nova_obra_id = None if obra_f == "Custo Geral" else _obra_uuid(obra_f) if _obra_valida(obra_f) else None
-                                    sync.colaborador_transferir(sb_uuid, nova_obra_id, sync._br_to_iso(data_transf) or date.today().isoformat(), cargo_f)
-                                sync.colaborador_save({"Nome":nome_f,"Cargo":cargo_f,"Tipo Contrato":cont_f,
-                                                       "Salário (R$)":sal_f,"Admissão":adm_f,"Situação":sit_f,
-                                                       "Obra": obra_f}, sb_id=sb_uuid)
-                                _notify(f"✅ Dados de **{nome_f}** atualizados com sucesso!"); st.rerun()
-                            if del_f:
-                                _pedir_confirmacao(f"func_{id_f}")
-                            if _confirmou_exclusao(f"func_{id_f}", f"o funcionário {nome_f}"):
-                                _nome_del_f = nome_f
-                                uuid_f_del = _sb_id(st.session_state.funcionarios, id_f)
-                                st.session_state.funcionarios = st.session_state.funcionarios[st.session_state.funcionarios["ID"]!=id_f].reset_index(drop=True)
-                                if uuid_f_del:
-                                    try:
-                                        from db import sb
-                                        sb().table("colaboradores").update({"ativo": False}).eq("id", uuid_f_del).execute()
-                                    except Exception:
-                                        st.warning("Funcionário removido localmente, mas falhou sincronização.")
-                                _notify(f"✅ **{_nome_del_f}** removido do sistema!"); st.rerun()
-
-                        sb_uuid_h = _sb_id(st.session_state.funcionarios, id_f)
-                        if sb_uuid_h:
-                            alocs = sync.alocacoes_load(sb_uuid_h)
-                            if alocs:
-                                st.markdown("---")
-                                st.markdown("#### 📋 Histórico de Alocações")
-                                for a in alocs:
-                                    ob_nome = (a.get("obras") or {}).get("nome", "Custo Geral") if a.get("obras") else "Custo Geral"
-                                    ini = str(a.get("data_inicio") or "")[:10]
-                                    fim = str(a.get("data_fim") or "Atual")[:10]
-                                    st.caption(f"**{ob_nome}** · {ini} → {fim} · {a.get('funcao_obra') or ''}")
-                else:
-                    cols_lote_f = st.columns([2, 2, 1])
-                    with cols_lote_f[0]:
-                        st.caption(f"**{n_sel_f}** funcionário(s) selecionado(s)")
-                    with cols_lote_f[1]:
-                        novo_status_lote_f = st.selectbox(
-                            "Alterar Situação", ["Ativo", "Férias", "Afastado", "Demitido"],
-                            key="ns_lote_func")
-                    with cols_lote_f[2]:
-                        st.write("")
-                        st.write("")
-                        if st.button("✅ Aplicar em Lote", key="btn_lote_func", type="primary"):
-                            for idx, _rf in LF.iterrows():
-                                st.session_state.funcionarios.loc[idx, "Situação"] = novo_status_lote_f
-                                _uuid_f = _sb_id(st.session_state.funcionarios, _rf["ID"])
-                                if _uuid_f:
-                                    sync.colaborador_save(
-                                        {"Situação": novo_status_lote_f}, sb_id=_uuid_f)
-                            _notify(f"✅ {n_sel_f} funcionário(s) atualizados para **{novo_status_lote_f}**!")
-                            st.rerun()
+                if isinstance(LF, pd.DataFrame) and not LF.empty:
+                    n_sel_f = len(LF)
                     st.markdown("---")
-                    if st.button(f"🗑️ Excluir {n_sel_f} selecionados", type="secondary", key="bulk_del_func"):
-                        _pedir_confirmacao("func_lote")
-                    if _confirmou_exclusao("func_lote", f"{n_sel_f} funcionário(s): {', '.join(LF['Nome'].astype(str).head(3))}{'...' if n_sel_f > 3 else ''}"):
-                        _removidos = []
-                        for _, _rf in LF.iterrows():
-                            _id_fd = _rf["ID"]
-                            _nome_fd = _rf["Nome"]
-                            _uuid_fd = _sb_id(st.session_state.funcionarios, _id_fd)
-                            st.session_state.funcionarios = st.session_state.funcionarios[
-                                st.session_state.funcionarios["ID"] != _id_fd
-                            ].reset_index(drop=True)
-                            try:
-                                if _uuid_fd:
-                                    from db import sb
-                                    sb().table("colaboradores").update({"ativo": False}).eq("id", _uuid_fd).execute()
-                            except Exception:
-                                st.warning(f"Falha ao sincronizar exclusão de {_nome_fd}.")
-                            _removidos.append(_nome_fd)
-                        if _removidos:
-                            _notify(f"✅ {len(_removidos)} funcionário(s) removido(s): {', '.join(_removidos[:3])}{'...' if len(_removidos)>3 else ''}")
-                            st.rerun()
+                    if n_sel_f == 1:
+                            _sf = LF.iloc[0]
+                            id_f = _sf["ID"]
+                            with st.container(border=True):
+                                st.markdown(f"#### ✏️ Editando: {_sf['Nome']}")
+                                obras_lista = ["Custo Geral"] + _obras_nomes(["Sede","Todas"])
+                                contrato_opts = ["CLT","MEI","Empreiteiro","Autônomo","Diarista","Estagiário"]
+                                ob_val_orig = str(_sf.get("Obra","") or "")
+                                with st.form("form_edit_func"):
+                                    c1,c2 = st.columns(2)
+                                    nome_f  = c1.text_input("Nome",  value=_sf["Nome"])
+                                    cargo_f = c2.text_input("Cargo (livre)", value=str(_sf.get("Cargo","") or ""),
+                                                            help="Digite qualquer função: Pedreiro, Eletricista, Arquiteto, etc.")
+                                    tc_idx  = contrato_opts.index(_sf.get("Tipo Contrato","CLT")) if _sf.get("Tipo Contrato","CLT") in contrato_opts else 0
+                                    cont_f  = c1.selectbox("Tipo de Contrato", contrato_opts, index=tc_idx)
+                                    ob_idx  = obras_lista.index(ob_val_orig) if ob_val_orig in obras_lista else 0
+                                    obra_f  = c2.selectbox("Obra Alocada", obras_lista, index=ob_idx)
+                                    if _role() == "admin":
+                                        sal_f = c1.number_input("Salário / Valor (R$)", value=_to_num(_sf["Salário (R$)"]),step=100.0)
+                                    else:
+                                        sal_f = _to_num(_sf["Salário (R$)"])
+                                    adm_f   = campo_data("Admissão", _sf.get("Admissão"), opcional=True, container=c2)
+                                    sit_opts = ["Ativo","Férias","Afastado","Demitido"]
+                                    sit_val = str(_sf.get("Situação","Ativo") or "Ativo")
+                                    sit_f   = c1.selectbox("Situação", sit_opts,
+                                                            index=sit_opts.index(sit_val) if sit_val in sit_opts else 0)
+                                    b1,b2,_ = st.columns([1,1,3])
+                                    sv_f  = b1.form_submit_button("💾 Salvar",type="primary")
+                                    del_f = b2.form_submit_button("🗑️ Excluir")
+                                if sv_f:
+                                    sb_uuid = _sb_id(st.session_state.funcionarios, id_f)
+                                    if not sb_uuid or not sync.colaborador_save(
+                                            {"Nome":nome_f,"Cargo":cargo_f,"Tipo Contrato":cont_f,
+                                             "Salário (R$)":sal_f,"Admissão":adm_f,"Situação":sit_f,
+                                             "Obra": obra_f}, sb_id=sb_uuid):
+                                        _erro_gravacao("o funcionário")
+                                        st.stop()
+                                    if obra_f != ob_val_orig:
+                                        # Transferência começa hoje (antes usava a data de admissão)
+                                        nova_obra_id = None if obra_f == "Custo Geral" else _obra_uuid(obra_f) if _obra_valida(obra_f) else None
+                                        if not sync.colaborador_transferir(sb_uuid, nova_obra_id, date.today().isoformat(), cargo_f):
+                                            st.session_state["_toast_pending"] = (
+                                                "⚠️ Dados salvos, mas a transferência de obra falhou.", "⚠️")
+                                    ix_f = st.session_state.funcionarios[st.session_state.funcionarios["ID"]==id_f].index[0]
+                                    st.session_state.funcionarios.loc[ix_f,
+                                        ["Nome","Cargo","Tipo Contrato","Obra","Salário (R$)","Admissão","Situação"]
+                                    ] = [nome_f, cargo_f, cont_f, obra_f, sal_f, adm_f, sit_f]
+                                    if "_toast_pending" not in st.session_state:
+                                        _notify(f"✅ Dados de **{nome_f}** atualizados com sucesso!")
+                                    st.rerun()
+                                if del_f:
+                                    _pedir_confirmacao(f"func_{id_f}")
+                                if _confirmou_exclusao(f"func_{id_f}", f"o funcionário {nome_f}"):
+                                    _nome_del_f = nome_f
+                                    uuid_f_del = _sb_id(st.session_state.funcionarios, id_f)
+                                    if not uuid_f_del or not db.colaborador_atualizar(uuid_f_del, {"ativo": False}):
+                                        st.error("❌ Não foi possível remover o funcionário no banco. Nada foi alterado.")
+                                        st.stop()
+                                    st.session_state.funcionarios = st.session_state.funcionarios[st.session_state.funcionarios["ID"]!=id_f].reset_index(drop=True)
+                                    _notify(f"✅ **{_nome_del_f}** removido do sistema!"); st.rerun()
+
+                            sb_uuid_h = _sb_id(st.session_state.funcionarios, id_f)
+                            if sb_uuid_h:
+                                alocs = sync.alocacoes_load(sb_uuid_h)
+                                if alocs:
+                                    st.markdown("---")
+                                    st.markdown("#### 📋 Histórico de Alocações")
+                                    for a in alocs:
+                                        ob_nome = (a.get("obras") or {}).get("nome", "Custo Geral") if a.get("obras") else "Custo Geral"
+                                        ini = str(a.get("data_inicio") or "")[:10]
+                                        fim = str(a.get("data_fim") or "Atual")[:10]
+                                        st.caption(f"**{ob_nome}** · {ini} → {fim} · {a.get('funcao_obra') or ''}")
+                    else:
+                        cols_lote_f = st.columns([2, 2, 1])
+                        with cols_lote_f[0]:
+                            st.caption(f"**{n_sel_f}** funcionário(s) selecionado(s)")
+                        with cols_lote_f[1]:
+                            novo_status_lote_f = st.selectbox(
+                                "Alterar Situação", ["Ativo", "Férias", "Afastado", "Demitido"],
+                                key="ns_lote_func")
+                        with cols_lote_f[2]:
+                            st.write("")
+                            st.write("")
+                            if st.button("✅ Aplicar em Lote", key="btn_lote_func", type="primary"):
+                                _falhas_f = 0
+                                for idx, _rf in LF.iterrows():
+                                    _uuid_f = _sb_id(st.session_state.funcionarios, _rf["ID"])
+                                    if _uuid_f and sync.colaborador_save({"Situação": novo_status_lote_f}, sb_id=_uuid_f):
+                                        st.session_state.funcionarios.loc[idx, "Situação"] = novo_status_lote_f
+                                    else:
+                                        _falhas_f += 1
+                                if _falhas_f:
+                                    _erro_gravacao(f"a situação de {_falhas_f} funcionário(s)")
+                                else:
+                                    _notify(f"✅ {n_sel_f} funcionário(s) atualizados para **{novo_status_lote_f}**!")
+                                    st.rerun()
+                        st.markdown("---")
+                        if st.button(f"🗑️ Excluir {n_sel_f} selecionados", type="secondary", key="bulk_del_func"):
+                            _pedir_confirmacao("func_lote")
+                        if _confirmou_exclusao("func_lote", f"{n_sel_f} funcionário(s): {', '.join(LF['Nome'].astype(str).head(3))}{'...' if n_sel_f > 3 else ''}"):
+                            _removidos = []
+                            for _, _rf in LF.iterrows():
+                                _id_fd = _rf["ID"]
+                                _nome_fd = _rf["Nome"]
+                                _uuid_fd = _sb_id(st.session_state.funcionarios, _id_fd)
+                                try:
+                                    _ok_fd = bool(_uuid_fd) and bool(db.colaborador_atualizar(_uuid_fd, {"ativo": False}))
+                                except Exception:
+                                    _ok_fd = False
+                                if not _ok_fd:
+                                    st.warning(f"Não foi possível remover {_nome_fd} no banco.")
+                                    continue
+                                st.session_state.funcionarios = st.session_state.funcionarios[
+                                    st.session_state.funcionarios["ID"] != _id_fd
+                                ].reset_index(drop=True)
+                                _removidos.append(_nome_fd)
+                            if _removidos:
+                                _notify(f"✅ {len(_removidos)} funcionário(s) removido(s): {', '.join(_removidos[:3])}{'...' if len(_removidos)>3 else ''}")
+                                st.rerun()
+
     with t2:
         faltas = st.session_state.ponto.copy()
         total_ativos = len(st.session_state.funcionarios[st.session_state.funcionarios["Situação"] == "Ativo"]) if not st.session_state.funcionarios.empty else 0
@@ -4500,7 +4591,7 @@ def pagina_pessoal():
         st.subheader("Registrar Falta")
         with st.form("form_ponto"):
             c1,c2 = st.columns(2)
-            _ff_pt    = st.session_state.get("funcionarios", pd.DataFrame())
+            _ff_pt    = _funcionarios_ativos()
             _funcs_pt = _ff_pt["Nome"].tolist() if not _ff_pt.empty else ["(nenhum colaborador)"]
             func_p  = c1.selectbox("Funcionário", _funcs_pt)
             data_p  = campo_data("Data", date.today(), container=c2)
@@ -4512,6 +4603,9 @@ def pagina_pessoal():
             _dado_pt = {"Data": data_p, "Funcionário": func_p,
                         "Obra": obra_p, "Tipo": tipo_p, "Observação": obs_p}
             _uuid_pt = sync.falta_save(_dado_pt, _obra_uuid(obra_p) if _obra_valida(obra_p) else None)
+            if not _uuid_pt:
+                _erro_gravacao("a falta")
+                st.stop()
             st.session_state.ponto = pd.concat([
                 st.session_state.ponto,
                 pd.DataFrame([{"ID": _next_id(st.session_state.ponto),
@@ -4561,6 +4655,9 @@ def pagina_pessoal():
                 "Observação": obs_reg,
             }
             _uuid_reg = sync.ponto_registro_save(_dado_reg, _obra_uuid(obra_reg) if _obra_valida(obra_reg) else None)
+            if not _uuid_reg:
+                _erro_gravacao("o ponto")
+                st.stop()
             st.session_state.ponto_registros = pd.concat([
                 st.session_state.ponto_registros,
                 pd.DataFrame([{"ID": _next_id(st.session_state.ponto_registros),
@@ -4573,7 +4670,7 @@ def pagina_pessoal():
         if not _pode(["folha"]):
             st.info("Acesso restrito. Solicite ao administrador.")
         else:
-            ff_all = st.session_state.funcionarios.copy()
+            ff_all = _funcionarios_ativos()
             if ff_all.empty:
                 st.info("Nenhum colaborador cadastrado. Use a aba ➕ Novo Colaborador.")
             else:
@@ -4718,6 +4815,9 @@ def pagina_pessoal():
                             "tipo_custo": tc_folha if tc_folha else None,
                         }
                         uuid_folha = sync.lancamento_save(dados_folha, "PAGAR", obra_uuid_folha)
+                        if not uuid_folha:
+                            _erro_gravacao("o lançamento da folha")
+                            st.stop()
                         st.session_state.contas_pagar = pd.concat([
                             st.session_state.contas_pagar,
                             pd.DataFrame([{
@@ -4726,10 +4826,8 @@ def pagina_pessoal():
                                 **dados_folha,
                             }])
                         ], ignore_index=True)
-                        st.success(
-                            f"✅ Folha lançada no Financeiro! Custo Empresa {_fmt(custo_emp)} "
-                            f"registrado em Contas a Pagar — {ob_lanc} ref. {ref_mes}."
-                        )
+                        _notify(f"✅ Folha lançada no Financeiro! Custo Empresa {_fmt(custo_emp)} "
+                                f"registrado em Contas a Pagar — {ob_lanc} ref. {ref_mes}.")
                         st.rerun()
 
     _CARGOS_SUGESTOES = [
@@ -4743,190 +4841,213 @@ def pagina_pessoal():
         "Almoxarife","Apontador","Motorista",
     ]
     with t7:
-        with st.form("form_novo_func"):
-            c1,c2 = st.columns(2)
-            nome_nf     = c1.text_input("Nome *")
-            cargo_sel   = c2.selectbox("Cargo *", _CARGOS_SUGESTOES)
-            cargo_livre = c2.text_input("Cargo (outro — deixe em branco se selecionou acima)")
-            cargo_nf    = cargo_livre.strip() if cargo_livre.strip() else (cargo_sel if cargo_sel != "— digitar abaixo —" else "")
-            cont_nf  = c1.selectbox("Tipo de Contrato *", ["CLT","MEI","Empreiteiro","Autônomo","Diarista","Estagiário"])
-            obra_nf  = c2.selectbox("Obra Alocada", _obras_nomes(["Sede","Todas"]))
-            sal_nf   = c1.number_input("Salário / Valor (R$)", min_value=0.0, step=100.0)
-            adm_nf   = campo_data("Admissão", date.today(), container=c2)
-            sit_nf   = c1.selectbox("Situação", ["Ativo","Férias","Afastado","Demitido"])
-            ok_nf    = st.form_submit_button("➕ Cadastrar", type="primary")
-        if ok_nf:
-            if not nome_nf or not cargo_nf: st.error("Nome e Cargo obrigatórios. Selecione da lista ou digite no campo 'Cargo (outro)'.")
-            else:
-                dados_col = {"Nome": nome_nf, "Cargo": cargo_nf, "Tipo Contrato": cont_nf,
-                             "Obra": obra_nf, "Salário (R$)": sal_nf, "Admissão": adm_nf, "Situação": sit_nf}
-                uuid_col = sync.colaborador_save(dados_col)
-                st.session_state.funcionarios = pd.concat([
-                    st.session_state.funcionarios,
-                    pd.DataFrame([{"ID": _next_id(st.session_state.funcionarios),
-                                   "SB_ID": uuid_col or None, **dados_col}])
-                ], ignore_index=True)
-                _notify(f"✅ Colaborador **{nome_nf}** ({cargo_nf}) cadastrado com sucesso!"); st.rerun()
+        if not (_pode(["pessoal"])):
+            st.info("Disponível para os perfis Administração, RH e Financeiro.")
+        else:
+            with st.form("form_novo_func"):
+                c1,c2 = st.columns(2)
+                nome_nf     = c1.text_input("Nome *")
+                cargo_sel   = c2.selectbox("Cargo *", _CARGOS_SUGESTOES)
+                cargo_livre = c2.text_input("Cargo (outro — deixe em branco se selecionou acima)")
+                cargo_nf    = cargo_livre.strip() if cargo_livre.strip() else (cargo_sel if cargo_sel != "— digitar abaixo —" else "")
+                cont_nf  = c1.selectbox("Tipo de Contrato *", ["CLT","MEI","Empreiteiro","Autônomo","Diarista","Estagiário"])
+                obra_nf  = c2.selectbox("Obra Alocada", _obras_nomes(["Sede","Todas"]))
+                sal_nf   = c1.number_input("Salário / Valor (R$)", min_value=0.0, step=100.0)
+                adm_nf   = campo_data("Admissão", date.today(), container=c2)
+                sit_nf   = c1.selectbox("Situação", ["Ativo","Férias","Afastado","Demitido"])
+                ok_nf    = st.form_submit_button("➕ Cadastrar", type="primary")
+            if ok_nf:
+                if not nome_nf or not cargo_nf: st.error("Nome e Cargo obrigatórios. Selecione da lista ou digite no campo 'Cargo (outro)'.")
+                else:
+                    dados_col = {"Nome": nome_nf, "Cargo": cargo_nf, "Tipo Contrato": cont_nf,
+                                 "Obra": obra_nf, "Salário (R$)": sal_nf, "Admissão": adm_nf, "Situação": sit_nf}
+                    uuid_col = sync.colaborador_save(dados_col)
+                    if not uuid_col:
+                        _erro_gravacao("o colaborador")
+                        st.stop()
+                    st.session_state.funcionarios = pd.concat([
+                        st.session_state.funcionarios,
+                        pd.DataFrame([{"ID": _next_id(st.session_state.funcionarios),
+                                       "SB_ID": uuid_col or None, **dados_col}])
+                    ], ignore_index=True)
+                    _notify(f"✅ Colaborador **{nome_nf}** ({cargo_nf}) cadastrado com sucesso!"); st.rerun()
 
     # ── Férias ────────────────────────────────────────────────────────────
     with t4:
-        st.subheader("🌴 Férias")
-        from sync import ferias_load, ferias_save as _ferias_save
-        if "ferias" not in st.session_state:
-            st.session_state.ferias = ferias_load()
+        if not (_pode(["pessoal"])):
+            st.info("Disponível para os perfis Administração, RH e Financeiro.")
+        else:
+            st.subheader("🌴 Férias")
+            from sync import ferias_load, ferias_save as _ferias_save
+            if "ferias" not in st.session_state:
+                st.session_state.ferias = ferias_load()
 
-        tab_f_lista, tab_f_nova = st.tabs(["📋 Lista", "➕ Agendar Férias"])
-        with tab_f_nova:
-            with st.form("form_ferias"):
-                c1, c2 = st.columns(2)
-                func_opts = _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else []
-                func_f = c1.selectbox("Funcionário *", func_opts if func_opts else [""])
-                ini_f = campo_data("Data Início *", date.today(), fmt=ISO, container=c2)
-                dias_f = c1.number_input("Dias", min_value=1, max_value=30, value=30, step=1)
-                sal_f = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_f]["Salário (R$)"].iloc[0]) if func_f and not st.session_state.funcionarios.empty else 0
-                vb_f = c2.number_input("Valor Bruto (R$)", min_value=0.0, value=sal_f, step=100.0)
-                obs_f = st.text_area("Observação", height=60)
-                ok_f = st.form_submit_button("💾 Agendar Férias", type="primary")
-            if ok_f:
-                if not func_f.strip():
-                    st.error("Selecione um funcionário.")
+            tab_f_lista, tab_f_nova = st.tabs(["📋 Lista", "➕ Agendar Férias"])
+            with tab_f_nova:
+                with st.form("form_ferias"):
+                    c1, c2 = st.columns(2)
+                    func_opts = _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else []
+                    func_f = c1.selectbox("Funcionário *", func_opts if func_opts else [""])
+                    ini_f = campo_data("Data Início *", date.today(), fmt=ISO, container=c2)
+                    dias_f = c1.number_input("Dias", min_value=1, max_value=30, value=30, step=1)
+                    sal_f = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_f]["Salário (R$)"].iloc[0]) if func_f and not st.session_state.funcionarios.empty else 0
+                    vb_f = c2.number_input("Valor Bruto (R$)", min_value=0.0, value=sal_f, step=100.0)
+                    obs_f = st.text_area("Observação", height=60)
+                    ok_f = st.form_submit_button("💾 Agendar Férias", type="primary")
+                if ok_f:
+                    if not func_f.strip():
+                        st.error("Selecione um funcionário.")
+                    else:
+                        fim = datetime.strptime(ini_f, "%Y-%m-%d") + timedelta(days=int(dias_f))
+                        dados_f = {"Funcionário": func_f, "Início": ini_f, "Fim": fim.strftime("%Y-%m-%d"),
+                                   "Dias": dias_f, "Valor Bruto": vb_f, "Valor Líquido": vb_f * 1.333,
+                                   "Status": "Agendada", "Observação": obs_f}
+                        sb_f = _ferias_save(dados_f)
+                        if not sb_f:
+                            _erro_gravacao("as férias")
+                            st.stop()
+                        st.session_state.ferias = pd.concat([
+                            st.session_state.ferias,
+                            pd.DataFrame([{"ID": _next_id(st.session_state.ferias), "SB_ID": sb_f or None, **dados_f}])
+                        ], ignore_index=True)
+                        _notify(f"Férias de **{func_f}** agendadas!"); st.rerun()
+
+            with tab_f_lista:
+                df_f = st.session_state.ferias.copy()
+                if df_f.empty:
+                    st.info("Nenhum período de férias registrado.")
                 else:
-                    fim = datetime.strptime(ini_f, "%Y-%m-%d") + timedelta(days=int(dias_f))
-                    dados_f = {"Funcionário": func_f, "Início": ini_f, "Fim": fim.strftime("%Y-%m-%d"),
-                               "Dias": dias_f, "Valor Bruto": vb_f, "Valor Líquido": vb_f * 1.333,
-                               "Status": "Agendada", "Observação": obs_f}
-                    sb_f = _ferias_save(dados_f)
-                    st.session_state.ferias = pd.concat([
-                        st.session_state.ferias,
-                        pd.DataFrame([{"ID": _next_id(st.session_state.ferias), "SB_ID": sb_f or None, **dados_f}])
-                    ], ignore_index=True)
-                    _notify(f"Férias de **{func_f}** agendadas!"); st.rerun()
-
-        with tab_f_lista:
-            df_f = st.session_state.ferias.copy()
-            if df_f.empty:
-                st.info("Nenhum período de férias registrado.")
-            else:
-                st.dataframe(df_f.drop(columns=[c for c in ["ID", "SB_ID"] if c in df_f.columns], errors='ignore'),
-                             width='stretch', hide_index=True)
-                st.metric("Total de Registros", len(df_f))
-                pend = len(df_f[df_f["Status"] == "Agendada"])
-                if pend:
-                    st.info(f"{pend} período(s) de férias aguardando início.")
+                    st.dataframe(df_f.drop(columns=[c for c in ["ID", "SB_ID"] if c in df_f.columns], errors='ignore'),
+                                 width='stretch', hide_index=True)
+                    st.metric("Total de Registros", len(df_f))
+                    pend = len(df_f[df_f["Status"] == "Agendada"])
+                    if pend:
+                        st.info(f"{pend} período(s) de férias aguardando início.")
 
     # ── Adicionais ────────────────────────────────────────────────────────
     with t5:
-        st.subheader("⚠️ Adicionais Salariais")
-        from sync import adicionais_load, adicional_save as _adic_save, adicional_delete as _adic_delete
+        if not (_pode(["pessoal"])):
+            st.info("Disponível para os perfis Administração, RH e Financeiro.")
+        else:
+            st.subheader("⚠️ Adicionais Salariais")
+            from sync import adicionais_load, adicional_save as _adic_save, adicional_delete as _adic_delete
 
-        func_a = st.selectbox("Funcionário", _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else [""], key="adic_func")
-        if func_a:
-            func_uuid = _sb_id(st.session_state.funcionarios, st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_a]["ID"].iloc[0]) if func_a in st.session_state.funcionarios["Nome"].values else None
+            func_a = st.selectbox("Funcionário", _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else [""], key="adic_func")
+            if func_a:
+                func_uuid = _sb_id(st.session_state.funcionarios, st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_a]["ID"].iloc[0]) if func_a in st.session_state.funcionarios["Nome"].values else None
 
-            tab_a_lista, tab_a_novo = st.tabs(["📋 Adicionais", "➕ Novo Adicional"])
+                tab_a_lista, tab_a_novo = st.tabs(["📋 Adicionais", "➕ Novo Adicional"])
 
-            with tab_a_novo:
-                with st.form("form_adicional"):
-                    c1, c2 = st.columns(2)
-                    tipo_a = c1.selectbox("Tipo", ["Insalubridade", "Periculosidade", "Horas Extras", "Noturno", "Comissão", "Outros"])
-                    pct_a = c2.number_input("Percentual (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
-                    sal_base = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_a]["Salário (R$)"].iloc[0]) if not st.session_state.funcionarios.empty else 0
-                    val_a = c1.number_input("Valor (R$)", min_value=0.0, value=sal_base * pct_a / 100, step=10.0)
-                    ok_a = st.form_submit_button("💾 Salvar Adicional", type="primary")
-                if ok_a:
-                    dados_a = {"Funcionário": func_a, "Tipo": tipo_a, "Percentual": pct_a, "Valor (R$)": val_a, "Ativo": "Sim"}
-                    sb_a = _adic_save(dados_a)
-                    _notify(f"Adicional **{tipo_a}** de **{_fmt(val_a)}** salvo!"); st.rerun()
+                with tab_a_novo:
+                    with st.form("form_adicional"):
+                        c1, c2 = st.columns(2)
+                        tipo_a = c1.selectbox("Tipo", ["Insalubridade", "Periculosidade", "Horas Extras", "Noturno", "Comissão", "Outros"])
+                        pct_a = c2.number_input("Percentual (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
+                        sal_base = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_a]["Salário (R$)"].iloc[0]) if not st.session_state.funcionarios.empty else 0
+                        val_a = c1.number_input("Valor (R$)", min_value=0.0, value=sal_base * pct_a / 100, step=10.0)
+                        ok_a = st.form_submit_button("💾 Salvar Adicional", type="primary")
+                    if ok_a:
+                        dados_a = {"Funcionário": func_a, "Tipo": tipo_a, "Percentual": pct_a, "Valor (R$)": val_a, "Ativo": "Sim"}
+                        if not _adic_save(dados_a):
+                            _erro_gravacao("o adicional")
+                            st.stop()
+                        _notify(f"Adicional **{tipo_a}** de **{_fmt(val_a)}** salvo!"); st.rerun()
 
-            with tab_a_lista:
-                df_a = adicionais_load(func_uuid)
-                if df_a.empty:
-                    st.info(f"Nenhum adicional para {func_a}.")
-                else:
-                    st.dataframe(df_a.drop(columns=[c for c in ["ID", "SB_ID"] if c in df_a.columns], errors='ignore'),
-                                 width='stretch', hide_index=True)
-                    total_adic = df_a[df_a["Ativo"] == "Sim"]["Valor (R$)"].sum()
-                    st.metric("Total de Adicionais Ativos", _fmt(total_adic))
+                with tab_a_lista:
+                    df_a = adicionais_load(func_uuid)
+                    if df_a.empty:
+                        st.info(f"Nenhum adicional para {func_a}.")
+                    else:
+                        st.dataframe(df_a.drop(columns=[c for c in ["ID", "SB_ID"] if c in df_a.columns], errors='ignore'),
+                                     width='stretch', hide_index=True)
+                        total_adic = df_a[df_a["Ativo"] == "Sim"]["Valor (R$)"].sum()
+                        st.metric("Total de Adicionais Ativos", _fmt(total_adic))
 
     # ── Rescisão ──────────────────────────────────────────────────────────
     with t6:
-        st.subheader("📄 Rescisão Contratual")
-        from sync import rescisoes_load, rescicao_save as _resc_save
+        if not (_pode(["pessoal"])):
+            st.info("Disponível para os perfis Administração, RH e Financeiro.")
+        else:
+            st.subheader("📄 Rescisão Contratual")
+            from sync import rescisoes_load, rescicao_save as _resc_save
 
-        if "rescisoes" not in st.session_state:
-            st.session_state.rescisoes = rescisoes_load()
+            if "rescisoes" not in st.session_state:
+                st.session_state.rescisoes = rescisoes_load()
 
-        tab_r_lista, tab_r_nova = st.tabs(["📋 Lista", "➕ Calcular Rescisão"])
-        with tab_r_nova:
-            with st.form("form_rescisao"):
-                c1, c2 = st.columns(2)
-                func_opts_r = _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else []
-                func_r = c1.selectbox("Funcionário *", func_opts_r if func_opts_r else [""])
-                data_r = campo_data("Data da Rescisão *", date.today(), fmt=ISO, container=c2)
-                tipo_r = c1.selectbox("Tipo", ["Sem justa causa", "Com justa causa", "Pedido demissão", "Término contrato", "Acordo"])
-                aviso_r = c2.selectbox("Aviso Prévio", ["Trabalhado", "Indenizado", "Dispensado"])
-                sal_r = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_r]["Salário (R$)"].iloc[0]) if func_r and not st.session_state.funcionarios.empty else 0
-                st.markdown("##### Verbas Rescisórias")
-                c3, c4 = st.columns(2)
-                ss_r = c3.number_input("Saldo Salário", min_value=0.0, value=sal_r / 30 * 15 if sal_r else 0, step=100.0)
-                fv_r = c4.number_input("Férias Vencidas", min_value=0.0, value=sal_r if sal_r else 0, step=100.0)
-                fp_r = c3.number_input("Férias Proporcionais", min_value=0.0, value=sal_r / 12 * 5 if sal_r else 0, step=100.0)
-                tc_r = c4.number_input("1/3 Constitucional", min_value=0.0, value=(fv_r + fp_r) / 3, step=100.0)
-                d13_r = c3.number_input("13º Salário", min_value=0.0, value=sal_r / 12 * 7 if sal_r else 0, step=100.0)
-                ap_r = c4.number_input("Aviso Prévio Valor", min_value=0.0, value=sal_r if sal_r else 0, step=100.0)
-                mf_r = c1.number_input("Multa FGTS", min_value=0.0, value=sal_r * 0.4 if sal_r else 0, step=100.0)
-                desc_r = c2.number_input("Descontos", min_value=0.0, value=0.0, step=100.0)
-                total_br = ss_r + fv_r + fp_r + tc_r + d13_r + ap_r + mf_r
-                total_liq = total_br - desc_r
-                st.metric("Total Bruto", _fmt(total_br))
-                st.metric("Total Líquido", _fmt(total_liq))
-                obs_r = st.text_area("Observação", height=60)
-                ok_r = st.form_submit_button("💾 Salvar Rescisão", type="primary")
-            if ok_r:
-                if not func_r.strip():
-                    st.error("Selecione um funcionário.")
+            tab_r_lista, tab_r_nova = st.tabs(["📋 Lista", "➕ Calcular Rescisão"])
+            with tab_r_nova:
+                with st.form("form_rescisao"):
+                    c1, c2 = st.columns(2)
+                    func_opts_r = _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else []
+                    func_r = c1.selectbox("Funcionário *", func_opts_r if func_opts_r else [""])
+                    data_r = campo_data("Data da Rescisão *", date.today(), fmt=ISO, container=c2)
+                    tipo_r = c1.selectbox("Tipo", ["Sem justa causa", "Com justa causa", "Pedido demissão", "Término contrato", "Acordo"])
+                    aviso_r = c2.selectbox("Aviso Prévio", ["Trabalhado", "Indenizado", "Dispensado"])
+                    sal_r = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_r]["Salário (R$)"].iloc[0]) if func_r and not st.session_state.funcionarios.empty else 0
+                    st.markdown("##### Verbas Rescisórias")
+                    c3, c4 = st.columns(2)
+                    ss_r = c3.number_input("Saldo Salário", min_value=0.0, value=sal_r / 30 * 15 if sal_r else 0, step=100.0)
+                    fv_r = c4.number_input("Férias Vencidas", min_value=0.0, value=sal_r if sal_r else 0, step=100.0)
+                    fp_r = c3.number_input("Férias Proporcionais", min_value=0.0, value=sal_r / 12 * 5 if sal_r else 0, step=100.0)
+                    tc_r = c4.number_input("1/3 Constitucional", min_value=0.0, value=(fv_r + fp_r) / 3, step=100.0)
+                    d13_r = c3.number_input("13º Salário", min_value=0.0, value=sal_r / 12 * 7 if sal_r else 0, step=100.0)
+                    ap_r = c4.number_input("Aviso Prévio Valor", min_value=0.0, value=sal_r if sal_r else 0, step=100.0)
+                    mf_r = c1.number_input("Multa FGTS", min_value=0.0, value=sal_r * 0.4 if sal_r else 0, step=100.0)
+                    desc_r = c2.number_input("Descontos", min_value=0.0, value=0.0, step=100.0)
+                    total_br = ss_r + fv_r + fp_r + tc_r + d13_r + ap_r + mf_r
+                    total_liq = total_br - desc_r
+                    st.metric("Total Bruto", _fmt(total_br))
+                    st.metric("Total Líquido", _fmt(total_liq))
+                    obs_r = st.text_area("Observação", height=60)
+                    ok_r = st.form_submit_button("💾 Salvar Rescisão", type="primary")
+                if ok_r:
+                    if not func_r.strip():
+                        st.error("Selecione um funcionário.")
+                    else:
+                        dados_r = {"Funcionário": func_r, "Data Rescisão": data_r, "Tipo": tipo_r,
+                                   "Aviso Prévio": aviso_r, "Saldo Salário": ss_r, "Férias Vencidas": fv_r,
+                                   "Férias Proporcionais": fp_r, "1/3 Constitucional": tc_r,
+                                   "13º Salário": d13_r, "Aviso Prévio Valor": ap_r,
+                                   "Multa FGTS": mf_r, "Descontos": desc_r,
+                                   "Total Bruto": total_br, "Total Líquido": total_liq,
+                                   "Status": "Calculada", "Observação": obs_r}
+                        sb_r = _resc_save(dados_r)
+                        if not sb_r:
+                            _erro_gravacao("a rescisão")
+                            st.stop()
+                        st.session_state.rescisoes = pd.concat([
+                            st.session_state.rescisoes,
+                            pd.DataFrame([{"ID": _next_id(st.session_state.rescisoes), "SB_ID": sb_r or None, **dados_r}])
+                        ], ignore_index=True)
+                        _notify(f"Rescisão de **{func_r}** — **{_fmt(total_liq)}** calculada!"); st.rerun()
+
+            with tab_r_lista:
+                df_r = st.session_state.rescisoes.copy()
+                if df_r.empty:
+                    st.info("Nenhuma rescisão registrada.")
                 else:
-                    dados_r = {"Funcionário": func_r, "Data Rescisão": data_r, "Tipo": tipo_r,
-                               "Aviso Prévio": aviso_r, "Saldo Salário": ss_r, "Férias Vencidas": fv_r,
-                               "Férias Proporcionais": fp_r, "1/3 Constitucional": tc_r,
-                               "13º Salário": d13_r, "Aviso Prévio Valor": ap_r,
-                               "Multa FGTS": mf_r, "Descontos": desc_r,
-                               "Total Bruto": total_br, "Total Líquido": total_liq,
-                               "Status": "Calculada", "Observação": obs_r}
-                    sb_r = _resc_save(dados_r)
-                    st.session_state.rescisoes = pd.concat([
-                        st.session_state.rescisoes,
-                        pd.DataFrame([{"ID": _next_id(st.session_state.rescisoes), "SB_ID": sb_r or None, **dados_r}])
-                    ], ignore_index=True)
-                    _notify(f"Rescisão de **{func_r}** — **{_fmt(total_liq)}** calculada!"); st.rerun()
-
-        with tab_r_lista:
-            df_r = st.session_state.rescisoes.copy()
-            if df_r.empty:
-                st.info("Nenhuma rescisão registrada.")
-            else:
-                cols_r = ["Funcionário", "Data Rescisão", "Tipo", "Total Bruto", "Total Líquido", "Status"]
-                sel_r = _tabela_clicavel(df_r, colunas_exibir=[c for c in cols_r if c in df_r.columns], key="tbl_resc",
-                    formatters={"Total Bruto": _fmt, "Total Líquido": _fmt})
-                if isinstance(sel_r, pd.DataFrame) and not sel_r.empty:
-                    row_r = sel_r.iloc[0]
-                    st.markdown("---")
-                    with st.container(border=True):
-                        st.markdown(f"#### 📄 Rescisão: {row_r['Funcionário']}")
-                        st.markdown(f"**Data:** {row_r.get('Data Rescisão','')}  ·  **Tipo:** {row_r.get('Tipo','')}")
-                        st.markdown(f"**Total Bruto:** {_fmt(float(row_r.get('Total Bruto',0)))}")
-                        st.markdown(f"**Total Líquido:** {_fmt(float(row_r.get('Total Líquido',0)))}")
-                        if st.button("🗑️ Excluir", key=f"del_resc_{row_r['ID']}"):
-                            _pedir_confirmacao(f"resc_{row_r['ID']}")
-                        if _confirmou_exclusao(f"resc_{row_r['ID']}", f"a rescisão de {row_r.get('Funcionário', '')}"):
-                            sb_id_r = _sb_id(st.session_state.rescisoes, row_r["ID"])
-                            if sb_id_r:
-                                from db import rescicao_atualizar
-                                rescicao_atualizar(sb_id_r, {"status": "Cancelada"})
-                            st.session_state.rescisoes = st.session_state.rescisoes[
-                                st.session_state.rescisoes["ID"] != row_r["ID"]
-                            ].reset_index(drop=True)
-                            _notify("Rescisão cancelada!"); st.rerun()
+                    cols_r = ["Funcionário", "Data Rescisão", "Tipo", "Total Bruto", "Total Líquido", "Status"]
+                    sel_r = _tabela_clicavel(df_r, colunas_exibir=[c for c in cols_r if c in df_r.columns], key="tbl_resc",
+                        formatters={"Total Bruto": _fmt, "Total Líquido": _fmt})
+                    if isinstance(sel_r, pd.DataFrame) and not sel_r.empty:
+                        row_r = sel_r.iloc[0]
+                        st.markdown("---")
+                        with st.container(border=True):
+                            st.markdown(f"#### 📄 Rescisão: {row_r['Funcionário']}")
+                            st.markdown(f"**Data:** {row_r.get('Data Rescisão','')}  ·  **Tipo:** {row_r.get('Tipo','')}")
+                            st.markdown(f"**Total Bruto:** {_fmt(float(row_r.get('Total Bruto',0)))}")
+                            st.markdown(f"**Total Líquido:** {_fmt(float(row_r.get('Total Líquido',0)))}")
+                            if st.button("🗑️ Excluir", key=f"del_resc_{row_r['ID']}"):
+                                _pedir_confirmacao(f"resc_{row_r['ID']}")
+                            if _confirmou_exclusao(f"resc_{row_r['ID']}", f"a rescisão de {row_r.get('Funcionário', '')}"):
+                                sb_id_r = _sb_id(st.session_state.rescisoes, row_r["ID"])
+                                if sb_id_r:
+                                    from db import rescicao_atualizar
+                                    rescicao_atualizar(sb_id_r, {"status": "Cancelada"})
+                                st.session_state.rescisoes = st.session_state.rescisoes[
+                                    st.session_state.rescisoes["ID"] != row_r["ID"]
+                                ].reset_index(drop=True)
+                                _notify("Rescisão cancelada!"); st.rerun()
 
 # ── Qualidade ─────────────────────────────────────────────────────────────────
 
@@ -5016,14 +5137,18 @@ def pagina_qualidade():
             with st.container(border=True):
                 st.markdown(f"#### ✏️ NC — {LNC['Obra']}")
                 st.caption(LNC.get("Descrição", ""))
-                st_opts_nc = ["Aberta","Em tratamento","Encerrada"]
+                st_opts_nc = ["Aberta","Em tratamento","Verificação","Encerrada"]
                 ns_nc = st.selectbox("Novo Status", st_opts_nc,
                                       index=st_opts_nc.index(LNC["Status"]) if LNC["Status"] in st_opts_nc else 0,
                                       key="ns_nc")
                 if st.button("✅ Atualizar NC", type="primary"):
-                    ix_nc = st.session_state.ncs[st.session_state.ncs["ID"]==id_nc].index[0]
-                    st.session_state.ncs.loc[ix_nc,"Status"]=ns_nc
-                    _notify(f"✅ NC de **{LNC['Obra']}** atualizada para status **{ns_nc}**!"); st.rerun()
+                    _sb_nc = str(LNC.get("SB_ID") or "")
+                    if not _sb_nc or _sb_nc in ("nan", "None") or not sync.nc_status_update(_sb_nc, ns_nc):
+                        _erro_gravacao("o status da NC")
+                    else:
+                        ix_nc = st.session_state.ncs[st.session_state.ncs["ID"]==id_nc].index[0]
+                        st.session_state.ncs.loc[ix_nc,"Status"]=ns_nc
+                        _notify(f"✅ NC de **{LNC['Obra']}** atualizada para status **{ns_nc}**!"); st.rerun()
 
     with t3:
         with st.form("form_chk"):
@@ -5044,6 +5169,9 @@ def pagina_qualidade():
                 "Observação": obs_chk,
             }
             uuid_chk = sync.inspecao_save(dados_chk, obra_sb_id=_obra_uuid(obra_chk))
+            if not uuid_chk:
+                _erro_gravacao("a inspeção")
+                st.stop()
             df_nova = pd.DataFrame([{"ID": _next_id(st.session_state.inspecoes) if not st.session_state.inspecoes.empty else 1,
                                      "SB_ID": uuid_chk or None, **dados_chk}])
             st.session_state.inspecoes = pd.concat(
@@ -5062,11 +5190,19 @@ def pagina_qualidade():
             prazo_nc = campo_data("Prazo", opcional=True, container=c2)
             ok_nc    = st.form_submit_button("⚠️ Abrir NC",type="primary")
         if ok_nc:
-            novo_id_nc = f"NC-{(len(st.session_state.ncs)+1):03d}"
-            dados_nc = {"Descrição":desc_nc,"Gravidade":grav_nc,"Status":"Aberta","Prazo":prazo_nc,"Ação Corretiva":acao_nc}
+            if not desc_nc.strip():
+                st.error("Descreva a não-conformidade.")
+                st.stop()
+            dados_nc = {"Descrição":desc_nc,"Gravidade":grav_nc,"Status":"Aberta","Prazo":prazo_nc,
+                        "Ação Corretiva":acao_nc,"Responsável":resp_nc}
             uuid_nc = sync.nc_save(dados_nc, obra_sb_id=_obra_uuid(obra_nc))
-            st.session_state.ncs = pd.concat([st.session_state.ncs,pd.DataFrame([{"ID":novo_id_nc,"SB_ID":uuid_nc or "","Data Abertura":date.today().strftime("%d/%m/%Y"),"Obra":obra_nc,**dados_nc,"Responsável":resp_nc}])],ignore_index=True)
-            _notify(f"✅ NC **{novo_id_nc}** aberta em **{obra_nc}** (Gravidade: {grav_nc})!"); st.rerun()
+            if not uuid_nc:
+                _erro_gravacao("a NC")
+            else:
+                # O número oficial (NC-xxx) é gerado pelo banco; recarrega a lista
+                sync.ncs_load.clear()
+                st.session_state.ncs = sync.ncs_load()
+                _notify(f"✅ NC aberta em **{obra_nc}** (Gravidade: {grav_nc})!"); st.rerun()
 
 
 # ── Orçamento (importação) ───────────────────────────────────────────────────
@@ -6012,23 +6148,22 @@ def pagina_rdo():
                     "Observações":   observacoes.strip(),
                     "fotos":         [],
                 }
-                sb_id_rdo = None
                 urls_fotos = []
-                try:
-                    import sync as _s_rdo
-                    sb_id_rdo = _s_rdo.rdo_save(novo)
-                    if sb_id_rdo:
-                        novo["SB_ID"] = sb_id_rdo
-                        if fotos_upload:
-                            for _foto in fotos_upload:
-                                _path = _s_rdo.upload_rdo_foto(sb_id_rdo, _foto, _foto.name)
-                                if _path:
-                                    urls_fotos.append({"nome": _foto.name, "path": _path})
-                            if urls_fotos:
-                                _s_rdo.rdo_update_fotos(sb_id_rdo, urls_fotos)
-                                novo["fotos"] = urls_fotos
-                except Exception:
-                    pass
+                sb_id_rdo = sync.rdo_save(novo)
+                if not sb_id_rdo:
+                    _erro_gravacao("o RDO")
+                    st.stop()
+                novo["ID"] = novo["SB_ID"] = sb_id_rdo
+                if fotos_upload:
+                    for _foto in fotos_upload:
+                        _path = sync.upload_rdo_foto(sb_id_rdo, _foto, _foto.name)
+                        if _path:
+                            urls_fotos.append({"nome": _foto.name, "path": _path})
+                    if urls_fotos and sync.rdo_update_fotos(sb_id_rdo, urls_fotos):
+                        novo["fotos"] = urls_fotos
+                    if len(urls_fotos) < len(fotos_upload):
+                        st.session_state["_toast_pending"] = (
+                            f"⚠️ RDO salvo, mas {len(fotos_upload) - len(urls_fotos)} foto(s) não foram enviadas.", "⚠️")
                 st.session_state.rdo = pd.concat(
                     [st.session_state.rdo, pd.DataFrame([novo])], ignore_index=True
                 )
@@ -6056,21 +6191,22 @@ def pagina_rdo():
                                 "Forma Pag.": forma_cp,
                                 "eap_item_id": eap_id_cp,
                                 "tipo_custo": cat_cp if cat_cp != "Outros" else None}
-                    uuid_cp = None
-                    try:
-                        uuid_cp = sync.lancamento_save(dados_cp, "PAGAR", _obra_uuid(obra_rdo))
-                    except Exception:
-                        pass
-                    st.session_state.contas_pagar = pd.concat([
-                        st.session_state.contas_pagar,
-                        pd.DataFrame([{"ID": _next_id(st.session_state.contas_pagar),
-                                       "SB_ID": uuid_cp or None, **dados_cp}])
-                    ], ignore_index=True)
-                    _msg_cp = f" + Conta a Pagar {_fmt(valor_cp)}"
+                    uuid_cp = sync.lancamento_save(dados_cp, "PAGAR", _obra_uuid(obra_rdo))
+                    if uuid_cp:
+                        dados_cp["Status"] = sync.status_com_vencimento("A Pagar", venc_cp)
+                        st.session_state.contas_pagar = pd.concat([
+                            st.session_state.contas_pagar,
+                            pd.DataFrame([{"ID": _next_id(st.session_state.contas_pagar),
+                                           "SB_ID": uuid_cp, **dados_cp}])
+                        ], ignore_index=True)
+                        _msg_cp = f" + Conta a Pagar {_fmt(valor_cp)}"
+                    else:
+                        _msg_cp = " ⚠️ A conta a pagar NÃO foi criada — lance no Financeiro."
 
                 _icone_rdo = "🔴" if status_rdo != "Normal" else "✅"
                 _msg_fotos = f" ({len(urls_fotos)} foto(s) anexada(s))" if urls_fotos else ""
-                _msg_cp = _msg_cp if st.session_state.get("rdo_gerar_cp", False) and valor_cp > 0 else ""
+                if not (st.session_state.get("rdo_gerar_cp", False) and valor_cp > 0):
+                    _msg_cp = ""
                 _notify(f"{_icone_rdo} RDO de **{str(data_rdo)}** — **{obra_rdo}** salvo!{_msg_cp} Status: {status_rdo}{_msg_fotos}")
                 st.rerun()
 
@@ -6144,12 +6280,11 @@ def pagina_rdo():
                                 "Ocorrências": _ocor_ed, "Equipamentos": _equip_ed,
                                 "Status Dia": _status_ed, "Observações": _obs_ed,
                             }
-                            try:
-                                import sync as _s_ed
-                                _sb_id_ed = str(row_d.get("SB_ID",""))
-                                _s_ed.rdo_save(_dados_ed, sb_id=_sb_id_ed if _sb_id_ed and _sb_id_ed != "nan" else None)
-                            except Exception:
-                                pass
+                            _sb_id_ed = str(row_d.get("SB_ID", ""))
+                            if not _sb_id_ed or _sb_id_ed in ("nan", "None") or \
+                                    not sync.rdo_save(_dados_ed, sb_id=_sb_id_ed):
+                                _erro_gravacao("as alterações do RDO")
+                                st.stop()
                             _orig_idx = st.session_state.rdo.index[st.session_state.rdo["ID"] == row_d["ID"]].tolist()
                             if _orig_idx:
                                 for _k, _v in _dados_ed.items():
@@ -6172,7 +6307,9 @@ def pagina_rdo():
                                     from db import sb as _sb_rdo
                                     _sb_rdo().table("rdo").delete().eq("id", _sb_id_exc).execute()
                                 except Exception:
-                                    pass
+                                    print(f"[rdo] excluir: {traceback.format_exc()}")
+                                    st.error("❌ Não foi possível excluir o RDO no banco. Nada foi alterado.")
+                                    st.stop()
                             _mask_exc = st.session_state.rdo["ID"] != row_d["ID"]
                             st.session_state.rdo = st.session_state.rdo[_mask_exc].reset_index(drop=True)
                             del st.session_state["rdo_excluindo"]
@@ -6323,17 +6460,23 @@ def pagina_eap():
 
     # ── Salvar EAP no Supabase ────────────────────────────────────────
     if obra_sb_id:
-        if st.button("📁 Gerar EAP no Banco", key="btn_gerar_eap", type="primary"):
+        if st.button("📁 Gerar / Atualizar EAP no Banco", key="btn_gerar_eap", type="primary",
+                     disabled=not _pode_editar_obra(),
+                     help="Etapas que já existem mantêm progresso, datas e custos vinculados."):
             try:
-                ok = sync.eap_save_from_orcamento(obra_sb_id, resultado)
+                r_eap = sync.eap_save_from_orcamento(obra_sb_id, resultado)
             except Exception as _eap_e:
+                print(f"[eap] {traceback.format_exc()}")
                 st.error(f"Erro ao gerar EAP: {_eap_e}")
-                ok = False
-            if ok:
-                _notify(f"✅ EAP gerada para **{obra_sel}**!")
-                st.rerun()
             else:
-                st.error("Erro ao gerar EAP no banco.")
+                _msg_eap = f"✅ EAP de **{obra_sel}**: {r_eap['novos']} nova(s), {r_eap['atualizados']} atualizada(s)"
+                if r_eap["removidos"]:
+                    _msg_eap += f", {r_eap['removidos']} removida(s)"
+                if r_eap["mantidos"]:
+                    _msg_eap += (f". {r_eap['mantidos']} etapa(s) que saíram do orçamento foram mantidas "
+                                 "porque têm custos, requisições ou medições ligados")
+                _notify(_msg_eap + ".")
+                st.rerun()
 
     # ── Verificar se já existe EAP salva ──────────────────────────────
     eap_data = sync.eap_load(obra_sb_id) if obra_sb_id else []
@@ -6406,18 +6549,17 @@ def pagina_eap():
 
             if "eap_progresso" not in st.session_state:
                 st.session_state.eap_progresso = {}
-            if "eap_progresso_saved" not in st.session_state:
-                st.session_state.eap_progresso_saved = False
-
-            # Carrega progresso salvo do Supabase na primeira vez
-            if not st.session_state.eap_progresso_saved and eap_data:
+            # Obras cujo progresso salvo já foi carregado nesta sessão. Tem que ser por obra:
+            # uma flag única deixava a 2ª obra zerada e "Salvar" gravava zeros no banco.
+            _prog_carregado = st.session_state.setdefault("_eap_prog_carregado", set())
+            if obra_sel not in _prog_carregado and eap_data:
                 for e in eap_data:
                     desc = e.get("descricao", "")
                     if desc:
                         k = f"eap_{obra_sel}_{desc}"
-                        if k not in st.session_state.eap_progresso:
-                            st.session_state.eap_progresso[k] = float(e.get("progresso", 0) or 0) * 100
-                st.session_state.eap_progresso_saved = True
+                        st.session_state.eap_progresso[k] = float(e.get("progresso", 0) or 0) * 100
+                        st.session_state.pop(k, None)  # o slider passa a usar o valor do banco
+                _prog_carregado.add(obra_sel)
 
             st.caption("Defina o avanço físico de cada etapa:")
             _prog_payload = {}
@@ -6437,7 +6579,8 @@ def pagina_eap():
 
             st.markdown("---")
             if _prog_payload and obra_sb_id:
-                if st.button("💾 Salvar Progresso no Banco", key="btn_salvar_prog"):
+                if st.button("💾 Salvar Progresso no Banco", key="btn_salvar_prog",
+                             disabled=not _pode_editar_obra()):
                     if sync.eap_save_all_progresso(obra_sb_id, _prog_payload):
                         _notify("Progresso salvo!")
                         st.rerun()
@@ -6456,8 +6599,7 @@ def pagina_eap():
     with t_gantt:
         if "eap_datas" not in st.session_state:
             st.session_state.eap_datas = {}
-        if "eap_datas_saved" not in st.session_state:
-            st.session_state.eap_datas_saved = False
+        _datas_carregadas = st.session_state.setdefault("_eap_datas_carregadas", set())
 
         if len(etapas):
             etapas_n1 = [e["descricao"] for e in etapas if e.get("nivel") == 1]
@@ -6465,7 +6607,7 @@ def pagina_eap():
             etapas_n1 = []
 
         # Carrega datas salvas do Supabase na primeira vez
-        if not st.session_state.eap_datas_saved and eap_data and obra_sel:
+        if obra_sel not in _datas_carregadas and eap_data and obra_sel:
             _loaded = {}
             for e in eap_data:
                 desc = e.get("descricao", "")
@@ -6480,7 +6622,7 @@ def pagina_eap():
                     }
             if _loaded:
                 st.session_state.eap_datas[obra_sel] = _loaded
-            st.session_state.eap_datas_saved = True
+            _datas_carregadas.add(obra_sel)
 
         if not etapas_n1:
             st.info("Nenhuma etapa de nível 1 detectada. Verifique o mapeamento de colunas no Orçamento.")
@@ -6496,11 +6638,13 @@ def pagina_eap():
                         ex = datas_obra.get(k, {})
                         c1_, c2_, c3_ = st.columns([4, 2, 2])
                         c1_.markdown(f"**{etapa[:55]}**")
-                        ini_ = campo_data("Início", ex.get("ini"), opcional=True, container=c2_, key=f"ini_dt_{k}")
-                        fim_ = campo_data("Término", ex.get("fim"), opcional=True, container=c3_, key=f"fim_dt_{k}")
+                        ini_ = campo_data("Início", ex.get("ini"), opcional=True, container=c2_, key=f"ini_dt_{obra_sel}_{k}")
+                        fim_ = campo_data("Término", ex.get("fim"), opcional=True, container=c3_, key=f"fim_dt_{obra_sel}_{k}")
                         novas_datas[k] = {"ini": ini_, "fim": fim_, "desc": etapa}
                     ok_dt = st.form_submit_button("💾 Salvar Datas", type="primary")
-                if ok_dt:
+                if ok_dt and not _pode_editar_obra():
+                    st.error("Seu perfil não pode alterar o cronograma.")
+                elif ok_dt:
                     st.session_state.eap_datas[obra_sel] = novas_datas
                     # Salva no Supabase
                     if obra_sb_id:
@@ -6753,98 +6897,121 @@ def pagina_medicao():
 
     # ── Tab 2: Nova Medição ───────────────────────────────────────────────
     with tab_nova:
-        st.markdown(f"**Último % medido:** {ultimo_pct:.1f}%")
-        competencia = st.date_input("Competência (mês/ano)", value=date.today().replace(day=1), key="med_competencia")
-        pct_acum = st.number_input("% Medido Acumulado", min_value=0.0, max_value=100.0,
-                                   value=min(float(ultimo_pct) + 10.0, 100.0), step=0.5, key="med_pct")
-        observacao = st.text_input("Observação", key="med_obs")
-
-        # EAP items para medição itemizada
-        eap_data = sync.eap_load(obra_uuid) if obra_uuid else []
-        if eap_data:
-            st.markdown("#### Itens da EAP — preencha % executado de cada um")
-            itens_med = []
-            cols_n = st.columns([3, 1, 1, 1, 1])
-            cols_n[0].markdown("**Descrição**")
-            cols_n[1].markdown("**Un**")
-            cols_n[2].markdown("**Qtd Prev**")
-            cols_n[3].markdown("**% Exec**")
-            cols_n[4].markdown("**Valor**")
-            for e in eap_data:
-                k = f"med_item_{e['id']}"
-                pct_i = st.session_state.get(k, 0.0)
-                pct_n = st.number_input(f"{e.get('descricao','')[:50]}", min_value=0.0, max_value=100.0,
-                                        value=float(pct_i), step=1.0, key=k, label_visibility="collapsed",
-                                        help=e.get("descricao",""))
-                q_prev = float(e.get("qtd_prevista", 0) or 0)
-                v_prev = float(e.get("valor_previsto", 0) or 0)
-                v_exec = v_prev * pct_n / 100
-                itens_med.append({
-                    "eap_item_id":  e["id"],
-                    "codigo":       str(e.get("codigo", "")),
-                    "descricao":    e.get("descricao", ""),
-                    "unidade":      e.get("unidade", ""),
-                    "qtd_prevista": q_prev,
-                    "qtd_periodo":  q_prev * pct_n / 100,
-                    "qtd_acumulada": q_prev * pct_n / 100,
-                    "preco_unitario": round(v_prev / q_prev, 2) if q_prev > 0 else 0,
-                    "valor_periodo":  round(v_exec, 2),
-                    "valor_acumulado": round(v_exec, 2),
-                })
-                cols_i = st.columns([3, 1, 1, 1, 1])
-                cols_i[0].caption(e.get("descricao", "")[:60])
-                cols_i[1].caption(e.get("unidade", ""))
-                cols_i[2].caption(f"{q_prev:.1f}")
-                cols_i[3].caption(f"{pct_n:.0f}%")
-                cols_i[4].caption(_fmt(v_exec))
-            total_eap = sum(it.get("valor_periodo", 0) for it in itens_med)
-            st.metric("Total pela EAP", _fmt(total_eap))
+        if not _pode_medir():
+            st.info("Seu perfil não pode registrar medições.")
         else:
-            itens_med = []
-            st.info("Esta obra não possui EAP. A medição será registrada apenas com % global.")
+            st.markdown(f"**Último % medido:** {ultimo_pct:.1f}%")
+            c_m1, c_m2 = st.columns(2)
+            competencia = c_m1.date_input("Competência (mês/ano)", value=date.today().replace(day=1),
+                                          format="DD/MM/YYYY", key="med_competencia")
+            venc_bm = campo_data("Vencimento da conta a receber", date.today() + timedelta(days=15),
+                                 container=c_m2, key="med_venc_bm")
+            observacao = st.text_input("Observação", key="med_obs")
 
-        if st.button("💾 Registrar Medição", type="primary", key="med_salvar"):
-            incremento = pct_acum - ultimo_pct
-            valor_periodo = incremento / 100 * valor_contrato
-            dados_med = {
-                "Data": competencia.strftime("%d/%m/%Y"),
-                "Período": competencia.strftime("%m/%Y"),
-                "% Medido": int(pct_acum),
-                "Valor Medido (R$)": total_eap if itens_med else valor_periodo,
-                "Observação": observacao,
-            }
-            mid = sync.medicao_save(dados_med, obra_sb_id=obra_uuid)
-            if mid:
-                if itens_med:
-                    sync.medicao_itens_save(mid, itens_med)
-                # Atualiza % Físico na obra
-                ob_row_m = st.session_state.obras["Nome"] == obra_sel
-                if ob_row_m.any():
-                    st.session_state.obras.loc[ob_row_m, "% Físico"] = int(pct_acum)
-                    try:
-                        import sync as _sync_m
-                        _sync_m.obra_save(dict(st.session_state.obras.loc[ob_row_m].iloc[0]),
-                                         sb_id=obra_uuid)
-                    except Exception:
-                        pass
-                # Cria Conta a Receber
-                try:
-                    from db import sb as _sb_m
-                    _sb_m().table("lancamentos").insert({
-                        "obra_id": obra_uuid,
-                        "tipo": "RECEBER",
-                        "descricao": f"BM {competencia.strftime('%m/%Y')} — {incremento:.1f}% — {obra_sel}",
-                        "valor": round(total_eap if itens_med else valor_periodo, 2),
-                        "data_vencimento": competencia.strftime("%Y-%m-%d"),
-                        "empresa_id": st.session_state.empresa_id,
-                    }).execute()
-                except Exception as _le:
-                    print(f"[med] erro ao criar conta a receber: {_le}")
-                sync.medicoes_load.clear()
-                _notify(f"✅ Medição de {pct_acum:.0f}% registrada!")
-                st.rerun()
+            # Só itens com valor ou quantidade prevista (etapas-título ficam de fora)
+            eap_data = [e for e in (sync.eap_load(obra_uuid) or [])
+                        if float(e.get("valor_previsto") or 0) > 0 or float(e.get("qtd_prevista") or 0) > 0]
+            itens_med, itens_abaixo = [], []
+            if eap_data:
+                acum_ant = sync.medicao_itens_acumulados(obra_uuid)
+                st.markdown("#### Itens da EAP — informe o % executado **acumulado** de cada item")
+                st.caption("O valor da medição é só o que avançou desde a medição anterior.")
+                cols_n = st.columns([3, 1, 1, 1, 1])
+                for _c, _t in zip(cols_n, ["**Descrição**", "**Un**", "**Anterior**", "**% Acum.**", "**No período**"]):
+                    _c.markdown(_t)
+                for e in eap_data:
+                    q_prev = float(e.get("qtd_prevista", 0) or 0)
+                    v_prev = float(e.get("valor_previsto", 0) or 0)
+                    ant = acum_ant.get(str(e["id"]), {})
+                    v_ant, q_ant = ant.get("valor", 0.0), ant.get("qtd", 0.0)
+                    pct_ant_i = (v_ant / v_prev * 100) if v_prev > 0 else (q_ant / q_prev * 100 if q_prev > 0 else 0.0)
+                    pct_ant_i = min(round(pct_ant_i, 2), 100.0)
+                    cols_i = st.columns([3, 1, 1, 1, 1])
+                    cols_i[0].caption(e.get("descricao", "")[:60])
+                    cols_i[1].caption(e.get("unidade", ""))
+                    cols_i[2].caption(f"{pct_ant_i:.0f}%")
+                    pct_n = cols_i[3].number_input(
+                        f"{e.get('descricao','')[:50]}", min_value=0.0, max_value=100.0,
+                        value=pct_ant_i, step=1.0, key=f"med_item_{obra_uuid}_{e['id']}",
+                        label_visibility="collapsed", help=e.get("descricao", ""))
+                    v_acum, q_acum = v_prev * pct_n / 100, q_prev * pct_n / 100
+                    v_per = v_acum - v_ant
+                    cols_i[4].caption(_fmt(v_per))
+                    if pct_n + 0.001 < pct_ant_i:
+                        itens_abaixo.append(e.get("descricao", "")[:40])
+                    itens_med.append({
+                        "eap_item_id":     e["id"],
+                        "codigo":          str(e.get("codigo", "")),
+                        "descricao":       e.get("descricao", ""),
+                        "unidade":         e.get("unidade", ""),
+                        "qtd_prevista":    q_prev,
+                        "qtd_periodo":     round(q_acum - q_ant, 4),
+                        "qtd_acumulada":   round(q_acum, 4),
+                        "preco_unitario":  round(v_prev / q_prev, 2) if q_prev > 0 else 0,
+                        "valor_periodo":   round(v_per, 2),
+                        "valor_acumulado": round(v_acum, 2),
+                    })
+                total_prev = sum(float(e.get("valor_previsto") or 0) for e in eap_data)
+                total_acum = sum(it["valor_acumulado"] for it in itens_med)
+                valor_periodo = round(sum(it["valor_periodo"] for it in itens_med), 2)
+                pct_acum = (total_acum / total_prev * 100) if total_prev > 0 else ultimo_pct
+                m1, m2 = st.columns(2)
+                m1.metric("Valor desta medição", _fmt(valor_periodo))
+                m2.metric("% acumulado pela EAP", f"{pct_acum:.1f}%")
             else:
-                st.error("Erro ao salvar medição no Supabase.")
+                st.info("Esta obra não possui EAP. A medição será registrada apenas com % global.")
+                pct_acum = st.number_input("% Medido Acumulado", min_value=0.0, max_value=100.0,
+                                           value=float(ultimo_pct), step=0.5, key="med_pct")
+                valor_periodo = round((pct_acum - ultimo_pct) / 100 * valor_contrato, 2)
+                st.metric("Valor desta medição", _fmt(valor_periodo))
+
+            if st.button("💾 Registrar Medição", type="primary", key="med_salvar"):
+                if itens_abaixo:
+                    st.error("O % acumulado não pode diminuir. Itens abaixo da medição anterior: "
+                             + ", ".join(itens_abaixo[:5]))
+                elif pct_acum + 0.01 < ultimo_pct:
+                    st.error(f"O % acumulado não pode ser menor que o da última medição ({ultimo_pct:.1f}%).")
+                elif valor_periodo <= 0:
+                    st.error("Nada a medir: o valor desta medição é zero.")
+                else:
+                    dados_med = {
+                        "Data": competencia.strftime("%d/%m/%Y"),
+                        "Período": competencia.strftime("%m/%Y"),
+                        "% Medido": round(pct_acum),
+                        "Valor Medido (R$)": valor_periodo,
+                        "Observação": observacao,
+                    }
+                    mid = sync.medicao_save(dados_med, obra_sb_id=obra_uuid)
+                    if not mid:
+                        _erro_gravacao("a medição")
+                    elif itens_med and not sync.medicao_itens_save(mid, itens_med):
+                        sync.medicao_delete(mid)
+                        _erro_gravacao("os itens da medição")
+                    else:
+                        # % Físico da obra
+                        try:
+                            db.obra_patch(obra_uuid, {"pct_fisico": int(round(pct_acum))})
+                            st.session_state.obras.loc[st.session_state.obras["Nome"] == obra_sel, "% Físico"] = int(round(pct_acum))
+                        except Exception as _e_pct:
+                            print(f"[med] % físico: {_e_pct}")
+                        # Conta a receber só do valor do período
+                        cliente_bm = ob_row["Cliente"].iloc[0] if not ob_row.empty else ""
+                        dados_bm = {"Obra": obra_sel, "Cliente": cliente_bm,
+                                    "Descrição": f"BM {competencia.strftime('%m/%Y')} — {obra_sel}",
+                                    "Valor (R$)": valor_periodo, "Vencimento": venc_bm, "Status": "A Receber"}
+                        uuid_cr = sync.lancamento_save(dados_bm, "RECEBER", obra_uuid)
+                        if uuid_cr:
+                            dados_bm["Status"] = sync.status_com_vencimento("A Receber", venc_bm)
+                            st.session_state.contas_receber = pd.concat([
+                                st.session_state.contas_receber,
+                                pd.DataFrame([{"ID": _next_id(st.session_state.contas_receber),
+                                               "SB_ID": uuid_cr, **dados_bm}])
+                            ], ignore_index=True)
+                        sync.medicoes_load.clear()
+                        st.session_state.medicoes = sync.medicoes_load()
+                        _notify(f"✅ Medição de {_fmt(valor_periodo)} registrada ({pct_acum:.0f}% acumulado)!"
+                                + ("" if uuid_cr else " ⚠️ A conta a receber NÃO foi criada — lance no Financeiro."))
+                        st.rerun()
 
     # ── Tab 3: Editar / Excluir ───────────────────────────────────────────
     with tab_editar:
@@ -6857,7 +7024,9 @@ def pagina_medicao():
             if sel_label:
                 mid = med_opts[sel_label]
                 row_m = df_med_obra[df_med_obra["SB_ID"] == mid].iloc[0]
-                if st.button("🗑️ Excluir esta medição", key="med_del", type="secondary"):
+                st.caption("Excluir a medição não apaga a conta a receber gerada por ela: cancele-a no Financeiro.")
+                if st.button("🗑️ Excluir esta medição", key="med_del", type="secondary",
+                             disabled=not _pode_medir()):
                     _pedir_confirmacao(f"med_{mid}")
                 if _confirmou_exclusao(f"med_{mid}", f"a medição {sel_label}"):
                     if sync.medicao_delete(mid):
@@ -6882,70 +7051,76 @@ def pagina_relatorios():
 
     # ── Tab 1: Gerencial ──────────────────────────────────────────────────
     with tab_ger:
-        st.markdown("##### Relatório Gerencial Mensal — consolidado de todas as obras")
-        rg_c1, rg_c2 = st.columns([3, 1])
-        mes_ref = campo_mes("Mês de referência", extenso=True, key="rg_mes_ref2", container=rg_c1)
-        if rg_c2.button("📥 Gerar PDF", key="btn_gerar_rg2", type="primary", width='stretch'):
-            try:
-                from gerar_pdf import gerar_relatorio_gerencial as _gerar_rg
-                _dados_rg = {
-                    "mes_ref":        mes_ref,
-                    "obras":          st.session_state.obras.copy(),
-                    "medicoes":       st.session_state.medicoes.copy(),
-                    "contas_pagar":   st.session_state.contas_pagar.copy(),
-                    "contas_receber": st.session_state.contas_receber.copy(),
-                    "ncs":            st.session_state.ncs.copy(),
-                    "funcionarios":   st.session_state.funcionarios.copy(),
-                }
-                _pdf_rg = _gerar_rg(_dados_rg)
-                st.download_button("⬇️ Baixar Relatório Gerencial PDF", data=_pdf_rg,
-                    file_name=f"Relatorio_Gerencial_Prumo_{mes_ref.replace('/','-')}.pdf",
-                    mime="application/pdf", key="dl_rg2")
-                st.success("✅ Relatório Gerencial gerado!")
-            except Exception as _e_rg:
-                st.error(f"❌ {_e_rg}")
+        if not (_pode(["financeiro"])):
+            st.info("Disponível para os perfis com acesso ao Financeiro.")
+        else:
+            st.markdown("##### Relatório Gerencial Mensal — consolidado de todas as obras")
+            rg_c1, rg_c2 = st.columns([3, 1])
+            mes_ref = campo_mes("Mês de referência", extenso=True, key="rg_mes_ref2", container=rg_c1)
+            if rg_c2.button("📥 Gerar PDF", key="btn_gerar_rg2", type="primary", width='stretch'):
+                try:
+                    from gerar_pdf import gerar_relatorio_gerencial as _gerar_rg
+                    _dados_rg = {
+                        "mes_ref":        mes_ref,
+                        "obras":          st.session_state.obras.copy(),
+                        "medicoes":       st.session_state.medicoes.copy(),
+                        "contas_pagar":   _lancamentos_validos(st.session_state.contas_pagar),
+                        "contas_receber": _lancamentos_validos(st.session_state.contas_receber),
+                        "ncs":            st.session_state.ncs.copy(),
+                        "funcionarios":   st.session_state.funcionarios.copy(),
+                    }
+                    _pdf_rg = _gerar_rg(_dados_rg)
+                    st.download_button("⬇️ Baixar Relatório Gerencial PDF", data=_pdf_rg,
+                        file_name=f"Relatorio_Gerencial_Prumo_{mes_ref.replace('/','-')}.pdf",
+                        mime="application/pdf", key="dl_rg2")
+                    st.success("✅ Relatório Gerencial gerado!")
+                except Exception as _e_rg:
+                    st.error(f"❌ {_e_rg}")
 
-        st.markdown("---")
-        st.markdown("##### Prévia — Indicadores do Mês")
-        ob = st.session_state.obras.copy()
-        ob_ativas = ob[ob["Status"].isin(["Em andamento", "Planejamento"])]
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Obras Ativas",  len(ob_ativas))
-        c2.metric("Total Contratos", _fmt(ob_ativas["Valor Contrato (R$)"].sum()))
-        c3.metric("Média % Físico", f"{ob_ativas['% Físico'].mean():.1f}%" if len(ob_ativas) else "—")
-        c4.metric("Folha Bruta",   _fmt(st.session_state.funcionarios["Salário (R$)"].sum()) if not st.session_state.funcionarios.empty else "—")
+            st.markdown("---")
+            st.markdown("##### Prévia — Indicadores do Mês")
+            ob = st.session_state.obras.copy()
+            ob_ativas = ob[ob["Status"].isin(["Em andamento", "Planejamento"])]
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Obras Ativas",  len(ob_ativas))
+            c2.metric("Total Contratos", _fmt(ob_ativas["Valor Contrato (R$)"].sum()))
+            c3.metric("Média % Físico", f"{ob_ativas['% Físico'].mean():.1f}%" if len(ob_ativas) else "—")
+            c4.metric("Folha Bruta",   _fmt(st.session_state.funcionarios["Salário (R$)"].sum()) if not st.session_state.funcionarios.empty else "—")
 
     # ── Tab 2: Financeiro ─────────────────────────────────────────────────
     with tab_fin:
-        st.markdown("##### Relatório Financeiro — Contas a Pagar / Receber")
-        fin_c1, fin_c2 = st.columns(2)
-        obra_fin = fin_c1.selectbox("Obra", ["Todas"] + obras_lista, key="rel_fin_obra")
-        mes_fin  = campo_mes("Mês de referência", key="rel_fin_mes", container=fin_c2)
-        cp = st.session_state.contas_pagar.copy()
-        cr = st.session_state.contas_receber.copy()
-        if obra_fin != "Todas":
-            cp = cp[cp["Obra"] == obra_fin]
-            cr = cr[cr["Obra"] == obra_fin]
-        cp_venc = cp[cp["Status"].isin(["A Pagar", "Vencido"])]["Valor (R$)"].sum()
-        cr_aren = cr[cr["Status"].isin(["A Receber", "Vencido"])]["Valor (R$)"].sum()
-        fc1, fc2, fc3 = st.columns(3)
-        fc1.metric("Total a Pagar",   _fmt(cp["Valor (R$)"].sum()))
-        fc2.metric("Total a Receber",  _fmt(cr["Valor (R$)"].sum()))
-        fc3.metric("Saldo Líquido",   _fmt(cr["Valor (R$)"].sum() - cp["Valor (R$)"].sum()))
-        st.markdown("---")
-        if st.button("📥 Exportar Financeiro (Excel)", key="btn_rel_fin_xls"):
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-                cp.drop(columns=[c for c in ["ID", "SB_ID"] if c in cp.columns], errors='ignore').to_excel(writer, sheet_name="Contas a Pagar", index=False)
-                cr.drop(columns=[c for c in ["ID", "SB_ID"] if c in cr.columns], errors='ignore').to_excel(writer, sheet_name="Contas a Receber", index=False)
-            st.download_button("⬇️ Baixar Excel", data=buf.getvalue(),
-                file_name=f"Financeiro_{mes_fin.replace('/','_')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_rel_fin")
-        st.dataframe(
-            cp.drop(columns=[c for c in ["ID", "SB_ID"] if c in cp.columns], errors='ignore'),
-            width='stretch', hide_index=True
-        )
+        if not (_pode(["financeiro"])):
+            st.info("Disponível para os perfis com acesso ao Financeiro.")
+        else:
+            st.markdown("##### Relatório Financeiro — Contas a Pagar / Receber")
+            fin_c1, fin_c2 = st.columns(2)
+            obra_fin = fin_c1.selectbox("Obra", ["Todas"] + obras_lista, key="rel_fin_obra")
+            mes_fin  = campo_mes("Mês de referência", key="rel_fin_mes", container=fin_c2)
+            cp = _lancamentos_validos(st.session_state.contas_pagar)
+            cr = _lancamentos_validos(st.session_state.contas_receber)
+            if obra_fin != "Todas":
+                cp = cp[cp["Obra"] == obra_fin]
+                cr = cr[cr["Obra"] == obra_fin]
+            cp_venc = cp[cp["Status"].isin(["A Pagar", "Vencido"])]["Valor (R$)"].sum()
+            cr_aren = cr[cr["Status"].isin(["A Receber", "Vencido"])]["Valor (R$)"].sum()
+            fc1, fc2, fc3 = st.columns(3)
+            fc1.metric("Total a Pagar",   _fmt(cp["Valor (R$)"].sum()))
+            fc2.metric("Total a Receber",  _fmt(cr["Valor (R$)"].sum()))
+            fc3.metric("Saldo Líquido",   _fmt(cr["Valor (R$)"].sum() - cp["Valor (R$)"].sum()))
+            st.markdown("---")
+            if st.button("📥 Exportar Financeiro (Excel)", key="btn_rel_fin_xls"):
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                    cp.drop(columns=[c for c in ["ID", "SB_ID"] if c in cp.columns], errors='ignore').to_excel(writer, sheet_name="Contas a Pagar", index=False)
+                    cr.drop(columns=[c for c in ["ID", "SB_ID"] if c in cr.columns], errors='ignore').to_excel(writer, sheet_name="Contas a Receber", index=False)
+                st.download_button("⬇️ Baixar Excel", data=buf.getvalue(),
+                    file_name=f"Financeiro_{mes_fin.replace('/','_')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_rel_fin")
+            st.dataframe(
+                cp.drop(columns=[c for c in ["ID", "SB_ID"] if c in cp.columns], errors='ignore'),
+                width='stretch', hide_index=True
+            )
 
     # ── Tab 3: Medições ───────────────────────────────────────────────────
     with tab_med:
@@ -7043,15 +7218,18 @@ def pagina_notificacoes():
     tab_venc, tab_nc, tab_est, tab_config = st.tabs(["💸 Vencimentos", "🔴 NCs Abertas", "📦 Estoque", "⚙️ Config"])
 
     with tab_venc:
-        if not _al_cache["vencimentos"]:
-            st.success("Nenhuma conta a vencer nos próximos 7 dias.")
+        if not (_pode(["financeiro"])):
+            st.info("Disponível para os perfis com acesso ao Financeiro.")
         else:
-            for v in sorted(_al_cache["vencimentos"], key=lambda x: x["dias"]):
-                cor = "🔴" if v["dias"] < 0 else "🟡"
-                with st.container(border=True):
-                    cc1, cc2 = st.columns([3, 1])
-                    cc1.markdown(f"**{cor} {v['obra']}** — {v['descricao']}")
-                    cc2.markdown(f"**{v['valor']}**  \n{v['status']}", help=f"Vencimento: {v['vencimento']}")
+            if not _al_cache["vencimentos"]:
+                st.success("Nenhuma conta a vencer nos próximos 7 dias.")
+            else:
+                for v in sorted(_al_cache["vencimentos"], key=lambda x: x["dias"]):
+                    cor = "🔴" if v["dias"] < 0 else "🟡"
+                    with st.container(border=True):
+                        cc1, cc2 = st.columns([3, 1])
+                        cc1.markdown(f"**{cor} {v['obra']}** — {v['descricao']}")
+                        cc2.markdown(f"**{v['valor']}**  \n{v['status']}", help=f"Vencimento: {v['vencimento']}")
 
     with tab_nc:
         if not _al_cache["ncs_abertas"]:
@@ -7759,10 +7937,12 @@ def app():
             "Planejamento (EAP)": ("📅", ["obras"]),
             "Administração":      ("⚙️", ["admin"]),
         }
-    if "pagina_atual" not in st.session_state:
-        st.session_state.pagina_atual = "Principal"
-    if not _pode(_MENU.get(st.session_state.pagina_atual, ("", ["dashboard"]))[1]):
-        st.session_state.pagina_atual = "Principal"
+    _permitidas = [pag for pag, (_, mods) in _MENU.items() if _pode(mods)]
+    _pag = st.session_state.get("pagina_atual")
+    _dev_ok = _pag == "Desenvolvedor" and _is_plataforma_admin()
+    if not _dev_ok and _pag not in _permitidas:
+        # Antes caía sempre em "Principal", inclusive para quem não tem acesso ao Dashboard
+        st.session_state.pagina_atual = _permitidas[0] if _permitidas else None
     for pag, (emoji, mods) in _MENU.items():
         if not _pode(mods):
             continue
@@ -7806,6 +7986,9 @@ def app():
         st.rerun()
 
     p = st.session_state.pagina_atual
+    if p is None:
+        st.warning("Seu perfil ainda não tem acesso a nenhum módulo. Fale com o administrador da empresa.")
+        return
     try:
         if   p == "Minhas Obras":       pagina_portal_contratante()
         elif p == "Principal":          pagina_dashboard()
@@ -7826,9 +8009,10 @@ def app():
         raise  # deixa st.rerun() funcionar normalmente
     except Exception as _page_err:
         import traceback as _tb
-        st.error(f"⚠️ Erro inesperado: {_page_err}")
-        with st.expander("Detalhes técnicos"):
-            st.code(_tb.format_exc())
+        st.error("⚠️ Ocorreu um erro inesperado nesta tela. Tente de novo; se persistir, avise o suporte.")
+        if _is_plataforma_admin() or _is_dev():
+            with st.expander("Detalhes técnicos"):
+                st.code(_tb.format_exc())
         print(f"[app] Erro em página '{p}': {_tb.format_exc()}")
 
 pg = st.navigation([st.Page(app, title="Prumo ERP", default=True)], position="hidden")
