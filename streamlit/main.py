@@ -339,6 +339,15 @@ def _chave_periodo(periodo) -> tuple:
     return (0, 0)
 
 
+def _custo_folha(func: pd.DataFrame) -> float:
+    """Custo mensal estimado da folha: encargos (31%) só para CLT; MEI, autônomo, diarista pelo valor pago."""
+    import trabalhista as _tb
+    if func is None or func.empty:
+        return 0.0
+    tipos = func["Tipo Contrato"] if "Tipo Contrato" in func.columns else pd.Series("CLT", index=func.index)
+    return float(sum(_tb.custo_empresa(_to_num(s), t) for s, t in zip(func["Salário (R$)"], tipos)))
+
+
 def _funcionarios_ativos() -> pd.DataFrame:
     """Funcionários que ainda contam para folha, ponto e custo (exclui demitidos)."""
     f = st.session_state.get("funcionarios", pd.DataFrame())
@@ -1854,7 +1863,7 @@ def pagina_dashboard():
     n_alertas = int(mask_alertas.sum())
 
     func_df["Salário (R$)"] = pd.to_numeric(func_df.get("Salário (R$)", 0), errors="coerce").fillna(0.0)
-    total_folha = func_df["Salário (R$)"].sum() * 1.31 if len(func_df) else 0.0
+    total_folha = _custo_folha(func_df)
 
     # ── KPI row ──
     st.markdown('<div class="dash-kpi-row">', unsafe_allow_html=True)
@@ -2036,7 +2045,7 @@ def pagina_dashboard():
             st.metric("Total Colaboradores",  len(func_df))
             st.metric("CLT / Terceirizados",  f"{n_clt} / {n_terc}")
             st.metric("Custo Folha Estimado", f"R$ {total_folha:,.0f}".replace(",", "."),
-                      help="Salário bruto × 1,31 (INSS + FGTS + RAT)")
+                      help="Estimativa: CLT = salário × 1,31 (INSS patronal + RAT + FGTS); demais contratos = valor pago.")
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -2112,7 +2121,7 @@ def pagina_dashboard():
                         if "Obra" in func_df.columns else pd.DataFrame()
             if len(func_obra):
                 sal_obra     = pd.to_numeric(func_obra.get("Salário (R$)", pd.Series([], dtype=float)), errors="coerce").fillna(0)
-                custo_equipe = sal_obra.sum() * 1.31
+                custo_equipe = _custo_folha(func_obra)
                 fe1, fe2 = st.columns(2)
                 fe1.metric("Colaboradores",    len(func_obra))
                 fe2.metric("Custo Equipe/Mês", f"R$ {custo_equipe:,.0f}".replace(",", "."))
@@ -3849,7 +3858,7 @@ def pagina_financeiro():
         ff_custo = _funcionarios_ativos()
         ff_custo["Salário (R$)"] = pd.to_numeric(ff_custo.get("Salário (R$)", 0), errors="coerce").fillna(0.0)
         ff_custo["Obra"] = ff_custo["Obra"].fillna("").replace("", "Sem alocação")
-        folha_estimada = ff_custo[ff_custo["Obra"] == obra_c]["Salário (R$)"].sum() * 1.31
+        folha_estimada = _custo_folha(ff_custo[ff_custo["Obra"] == obra_c])
 
         # Métricas por categoria
         def _soma_cat(cat):
@@ -4007,8 +4016,8 @@ def pagina_financeiro():
             custo_a_pagar = cp_obra[cp_obra["Status"].isin(["A Pagar", "Vencido"])]["Valor (R$)"].sum()
 
             # Funcionários alocados (estimativa)
-            funcs_obra = st.session_state.funcionarios[st.session_state.funcionarios["Obra"] == dre_sel]
-            folha_estimada = funcs_obra["Salário (R$)"].sum() * 1.31 if not funcs_obra.empty else 0
+            funcs_obra = _funcionarios_ativos()
+            folha_estimada = _custo_folha(funcs_obra[funcs_obra["Obra"] == dre_sel]) if not funcs_obra.empty else 0
 
             # Cálculos DRE
             # Receita = o que foi medido/faturado (contas a receber). Contrato × % físico é só referência.
@@ -4854,15 +4863,20 @@ def pagina_pessoal():
             else:
                 ff_all["Salário (R$)"]  = pd.to_numeric(ff_all["Salário (R$)"], errors="coerce").fillna(0.0)
                 ff_all["Obra"]          = ff_all["Obra"].fillna("Sem alocação").replace("", "Sem alocação")
-                ff_all["INSS (R$)"]     = (ff_all["Salário (R$)"]*0.11).round(2)
-                ff_all["FGTS (R$)"]     = (ff_all["Salário (R$)"]*0.08).round(2)
-                ff_all["Líquido (R$)"]  = ff_all["Salário (R$)"]-ff_all["INSS (R$)"]
+                import trabalhista as _tb
+                # Encargos só para CLT; MEI/autônomo/diarista custam o valor pago
+                _clt = ff_all["Tipo Contrato"].fillna("CLT").isin(_tb.TIPOS_COM_ENCARGOS)                     if "Tipo Contrato" in ff_all.columns else pd.Series(True, index=ff_all.index)
+                ff_all["FGTS (R$)"]         = (ff_all["Salário (R$)"] * 0.08).where(_clt, 0.0).round(2)
+                ff_all["Custo Empresa (R$)"] = [round(_tb.custo_empresa(v, t), 2) for v, t in
+                                               zip(ff_all["Salário (R$)"], ff_all.get("Tipo Contrato", pd.Series("CLT", index=ff_all.index)))]
+                st.caption("💡 **Estimativa de custo.** Encargos de 31% (INSS patronal 20% + RAT 3% + FGTS 8%) "
+                           "só para CLT. INSS e IRRF do empregado e o líquido a pagar ficam com a contabilidade.")
                 # ── Totais consolidados ────────────────────────────────────
                 c1,c2,c3,c4 = st.columns(4)
-                c1.metric("Bruto Total",  _fmt(ff_all["Salário (R$)"].sum()))
-                c2.metric("INSS",         _fmt(ff_all["INSS (R$)"].sum()))
-                c3.metric("FGTS",         _fmt(ff_all["FGTS (R$)"].sum()))
-                c4.metric("Líquido Total",_fmt(ff_all["Líquido (R$)"].sum()))
+                c1.metric("Salários Brutos",  _fmt(ff_all["Salário (R$)"].sum()))
+                c2.metric("FGTS (CLT)",       _fmt(ff_all["FGTS (R$)"].sum()))
+                c3.metric("Custo Empresa (est.)", _fmt(ff_all["Custo Empresa (R$)"].sum()))
+                c4.metric("Colaboradores",    f"{len(ff_all)} ({int(_clt.sum())} CLT)")
                 st.markdown("---")
                 # ── Filtro por Obra ────────────────────────────────────────
                 todas_ob = ["Todas"] + _uniq(ff_all["Obra"])
@@ -4874,8 +4888,8 @@ def pagina_pessoal():
                     cf2.metric("Funcionários",         str(len(ff)))
                     cf3.metric("% da Folha Total",
                                 f"{ff['Salário (R$)'].sum()/ff_all['Salário (R$)'].sum()*100:.1f}%")
-                ex_ff = ff[["Nome","Cargo","Tipo Contrato","Obra","Salário (R$)","INSS (R$)","FGTS (R$)","Líquido (R$)"]].copy()
-                for col in ["Salário (R$)","INSS (R$)","FGTS (R$)","Líquido (R$)"]:
+                ex_ff = ff[["Nome","Cargo","Tipo Contrato","Obra","Salário (R$)","FGTS (R$)","Custo Empresa (R$)"]].copy()
+                for col in ["Salário (R$)","FGTS (R$)","Custo Empresa (R$)"]:
                     ex_ff[col] = ex_ff[col].apply(_fmt)
                 st.dataframe(ex_ff, width='stretch', hide_index=True)
                 st.download_button("⬇️ Exportar Excel", data=_export_excel(ex_ff), file_name="folha_pagamento.xlsx",
@@ -4903,21 +4917,25 @@ def pagina_pessoal():
                         ff_exp = ff_all.copy() if ob_pdf_folha == "Todas as Obras" else ff_all[ff_all["Obra"] == ob_pdf_folha].copy()
                         obra_label = ob_pdf_folha if ob_pdf_folha != "Todas as Obras" else "Todas as Obras"
                         bruto_exp   = ff_exp["Salário (R$)"].sum()
-                        inss_p_exp  = round(bruto_exp * 0.20, 2)
-                        rat_exp     = round(bruto_exp * 0.03, 2)
-                        fgts_exp    = round(bruto_exp * 0.08, 2)
+                        # Encargos só sobre a folha CLT
+                        _base_clt   = ff_exp[_clt.reindex(ff_exp.index, fill_value=True)]["Salário (R$)"].sum()
+                        inss_p_exp  = round(_base_clt * 0.20, 2)
+                        rat_exp     = round(_base_clt * 0.03, 2)
+                        fgts_exp    = round(_base_clt * 0.08, 2)
                         custo_exp   = round(bruto_exp + inss_p_exp + rat_exp + fgts_exp, 2)
                         colab_list  = []
                         for _, row in ff_exp.iterrows():
                             sal = _to_num(row["Salário (R$)"])
+                            _eh_clt = (row.get("Tipo Contrato") or "CLT") in _tb.TIPOS_COM_ENCARGOS
                             colab_list.append({
                                 "nome":          row.get("Nome", "—"),
                                 "cargo":         row.get("Cargo", "—"),
                                 "tipo_contrato": row.get("Tipo Contrato", "CLT"),
                                 "salario":       sal,
-                                "inss":          round(sal * 0.11, 2),
-                                "fgts":          round(sal * 0.08, 2),
-                                "liquido":       round(sal - sal * 0.11, 2),
+                                # Estimativa: 11% fixo; o INSS real é progressivo (contabilidade)
+                                "inss":          round(sal * 0.11, 2) if _eh_clt else 0.0,
+                                "fgts":          round(sal * 0.08, 2) if _eh_clt else 0.0,
+                                "liquido":       round(sal - sal * 0.11, 2) if _eh_clt else sal,
                             })
                         dados_fp = {
                             "ref_mes":       ref_pdf_folha,
@@ -4945,8 +4963,8 @@ def pagina_pessoal():
                 st.markdown("---")
                 st.subheader("Fechar Folha e Lançar no Financeiro")
                 st.caption(
-                    "Consolida o **Custo Total Empresa** (Salário + INSS Patronal 20% + RAT 3% + FGTS 8%) "
-                    "para a obra selecionada e gera uma Conta a Pagar com Categoria **Folha de Pagamento**."
+                    "Consolida o **custo estimado** da obra (CLT: salário + INSS patronal 20% + RAT 3% + FGTS 8%; "
+                    "demais contratos: valor pago) e gera uma Conta a Pagar com Categoria **Folha de Pagamento**."
                 )
                 obras_folha_lanc = _obras_nomes()
                 ob_lanc = st.selectbox("Obra para lançamento", obras_folha_lanc, key="folha_ob_lanc")
@@ -4962,9 +4980,10 @@ def pagina_pessoal():
                 eap_id_folha = str(df_eap_folha.iloc[eap_opts_folha.index(eap_sel_folha) - 1]["id"]) if eap_sel_folha and not df_eap_folha.empty else None
                 ff_lanc = ff_all[ff_all["Obra"] == ob_lanc].copy()
                 bruto_lanc  = ff_lanc["Salário (R$)"].apply(_to_num).sum()
-                inss_pat    = round(bruto_lanc * 0.20, 2)
-                rat_lanc    = round(bruto_lanc * 0.03, 2)
-                fgts_lanc   = round(bruto_lanc * 0.08, 2)
+                _clt_lanc   = ff_lanc[_clt.reindex(ff_lanc.index, fill_value=True)]["Salário (R$)"].apply(_to_num).sum()
+                inss_pat    = round(_clt_lanc * 0.20, 2)
+                rat_lanc    = round(_clt_lanc * 0.03, 2)
+                fgts_lanc   = round(_clt_lanc * 0.08, 2)
                 custo_emp   = round(bruto_lanc + inss_pat + rat_lanc + fgts_lanc, 2)
                 if bruto_lanc > 0:
                     cl1,cl2,cl3,cl4 = st.columns(4)
@@ -5062,23 +5081,34 @@ def pagina_pessoal():
 
             tab_f_lista, tab_f_nova = st.tabs(["📋 Lista", "➕ Agendar Férias"])
             with tab_f_nova:
+                import trabalhista as _tb
+                # Funcionário fora do formulário: o valor sugerido acompanha quem foi escolhido
+                _funcs_f = _funcionarios_ativos()
+                func_opts = _uniq(_funcs_f["Nome"]) if not _funcs_f.empty else []
+                func_f = st.selectbox("Funcionário *", func_opts if func_opts else [""], key="ferias_func")
+                _row_f = _funcs_f[_funcs_f["Nome"] == func_f]
+                sal_f = _to_num(_row_f["Salário (R$)"].iloc[0]) if not _row_f.empty else 0.0
                 with st.form("form_ferias"):
                     c1, c2 = st.columns(2)
-                    func_opts = _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else []
-                    func_f = c1.selectbox("Funcionário *", func_opts if func_opts else [""])
                     ini_f = campo_data("Data Início *", date.today(), fmt=ISO, container=c2)
-                    dias_f = c1.number_input("Dias", min_value=1, max_value=30, value=30, step=1)
-                    sal_f = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_f]["Salário (R$)"].iloc[0]) if func_f and not st.session_state.funcionarios.empty else 0
-                    vb_f = c2.number_input("Valor Bruto (R$)", min_value=0.0, value=sal_f, step=100.0)
+                    dias_f = c1.number_input("Dias", min_value=5, max_value=30, value=30, step=1)
+                    vb_f = c2.number_input("Salário das férias (R$)", min_value=0.0, value=sal_f, step=100.0,
+                                           key=f"ferias_vb_{func_f}",
+                                           help="Salário proporcional aos dias. O 1/3 constitucional é somado automaticamente.")
                     obs_f = st.text_area("Observação", height=60)
+                    st.caption("Estimativa: não desconta INSS/IRRF nem inclui médias de variáveis.")
                     ok_f = st.form_submit_button("💾 Agendar Férias", type="primary")
                 if ok_f:
                     if not func_f.strip():
                         st.error("Selecione um funcionário.")
                     else:
-                        fim = datetime.strptime(ini_f, "%Y-%m-%d") + timedelta(days=int(dias_f))
+                        _ini_dt = datetime.strptime(ini_f, "%Y-%m-%d").date()
+                        fim = _tb.fim_ferias(_ini_dt, int(dias_f))
+                        _bruto = round(vb_f * int(dias_f) / 30, 2)
                         dados_f = {"Funcionário": func_f, "Início": ini_f, "Fim": fim.strftime("%Y-%m-%d"),
-                                   "Dias": dias_f, "Valor Bruto": vb_f, "Valor Líquido": vb_f * 1.333,
+                                   "Dias": dias_f, "Valor Bruto": _bruto,
+                                   # Coluna "valor_liquido" guarda salário + 1/3 (antes da retenção)
+                                   "Valor Líquido": round(_bruto * 4 / 3, 2),
                                    "Status": "Agendada", "Observação": obs_f}
                         sb_f = _ferias_save(dados_f)
                         if not sb_f:
@@ -5095,7 +5125,8 @@ def pagina_pessoal():
                 if df_f.empty:
                     st.info("Nenhum período de férias registrado.")
                 else:
-                    st.dataframe(df_f.drop(columns=[c for c in ["ID", "SB_ID"] if c in df_f.columns], errors='ignore'),
+                    st.dataframe(df_f.drop(columns=[c for c in ["ID", "SB_ID"] if c in df_f.columns], errors='ignore')
+                                 .rename(columns={"Valor Bruto": "Salário férias", "Valor Líquido": "Salário + 1/3"}),
                                  width='stretch', hide_index=True)
                     st.metric("Total de Registros", len(df_f))
                     pend = len(df_f[df_f["Status"] == "Agendada"])
@@ -5121,10 +5152,18 @@ def pagina_pessoal():
                         c1, c2 = st.columns(2)
                         tipo_a = c1.selectbox("Tipo", ["Insalubridade", "Periculosidade", "Horas Extras", "Noturno", "Comissão", "Outros"])
                         pct_a = c2.number_input("Percentual (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
-                        sal_base = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_a]["Salário (R$)"].iloc[0]) if not st.session_state.funcionarios.empty else 0
-                        val_a = c1.number_input("Valor (R$)", min_value=0.0, value=sal_base * pct_a / 100, step=10.0)
+                        _row_a = st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_a]
+                        sal_base = _to_num(_row_a["Salário (R$)"].iloc[0]) if not _row_a.empty else 0.0
+                        val_a = c1.number_input("Valor (R$) — deixe 0 para calcular pelo %", min_value=0.0,
+                                                value=0.0, step=10.0)
                         ok_a = st.form_submit_button("💾 Salvar Adicional", type="primary")
                     if ok_a:
+                        # Dentro do formulário o valor não acompanha o %: calcula aqui
+                        if not val_a:
+                            val_a = round(sal_base * pct_a / 100, 2)
+                        if val_a <= 0:
+                            st.error("Informe o percentual ou o valor.")
+                            st.stop()
                         dados_a = {"Funcionário": func_a, "Tipo": tipo_a, "Percentual": pct_a, "Valor (R$)": val_a, "Ativo": "Sim"}
                         if not _adic_save(dados_a):
                             _erro_gravacao("o adicional")
@@ -5154,31 +5193,58 @@ def pagina_pessoal():
 
             tab_r_lista, tab_r_nova = st.tabs(["📋 Lista", "➕ Calcular Rescisão"])
             with tab_r_nova:
-                with st.form("form_rescisao"):
-                    c1, c2 = st.columns(2)
-                    func_opts_r = _uniq(st.session_state.funcionarios["Nome"]) if not st.session_state.funcionarios.empty else []
-                    func_r = c1.selectbox("Funcionário *", func_opts_r if func_opts_r else [""])
-                    data_r = campo_data("Data da Rescisão *", date.today(), fmt=ISO, container=c2)
-                    tipo_r = c1.selectbox("Tipo", ["Sem justa causa", "Com justa causa", "Pedido demissão", "Término contrato", "Acordo"])
-                    aviso_r = c2.selectbox("Aviso Prévio", ["Trabalhado", "Indenizado", "Dispensado"])
-                    sal_r = float(st.session_state.funcionarios[st.session_state.funcionarios["Nome"] == func_r]["Salário (R$)"].iloc[0]) if func_r and not st.session_state.funcionarios.empty else 0
-                    st.markdown("##### Verbas Rescisórias")
-                    c3, c4 = st.columns(2)
-                    ss_r = c3.number_input("Saldo Salário", min_value=0.0, value=sal_r / 30 * 15 if sal_r else 0, step=100.0)
-                    fv_r = c4.number_input("Férias Vencidas", min_value=0.0, value=sal_r if sal_r else 0, step=100.0)
-                    fp_r = c3.number_input("Férias Proporcionais", min_value=0.0, value=sal_r / 12 * 5 if sal_r else 0, step=100.0)
-                    tc_r = c4.number_input("1/3 Constitucional", min_value=0.0, value=(fv_r + fp_r) / 3, step=100.0)
-                    d13_r = c3.number_input("13º Salário", min_value=0.0, value=sal_r / 12 * 7 if sal_r else 0, step=100.0)
-                    ap_r = c4.number_input("Aviso Prévio Valor", min_value=0.0, value=sal_r if sal_r else 0, step=100.0)
-                    mf_r = c1.number_input("Multa FGTS", min_value=0.0, value=sal_r * 0.4 if sal_r else 0, step=100.0)
-                    desc_r = c2.number_input("Descontos", min_value=0.0, value=0.0, step=100.0)
-                    total_br = ss_r + fv_r + fp_r + tc_r + d13_r + ap_r + mf_r
-                    total_liq = total_br - desc_r
-                    st.metric("Total Bruto", _fmt(total_br))
-                    st.metric("Total Líquido", _fmt(total_liq))
-                    obs_r = st.text_area("Observação", height=60)
-                    ok_r = st.form_submit_button("💾 Salvar Rescisão", type="primary")
-                if ok_r:
+                import trabalhista as _tb
+                from campos import _para_date
+                st.warning("⚠️ **Estimativa.** Os valores são sugestões para prever o custo — o cálculo oficial "
+                           "(INSS, IRRF, médias de horas extras) é da contabilidade. Confira antes de pagar.")
+                # Fora de formulário: trocar funcionário, data ou tipo recalcula as sugestões na hora
+                _funcs_r = _funcionarios_ativos()
+                c1, c2 = st.columns(2)
+                func_opts_r = _uniq(_funcs_r["Nome"]) if not _funcs_r.empty else []
+                func_r = c1.selectbox("Funcionário *", func_opts_r if func_opts_r else [""], key="resc_func")
+                data_r = campo_data("Data do desligamento *", date.today(), fmt=ISO, container=c2, key="resc_data")
+                tipo_r = c1.selectbox("Tipo", _tb.TIPOS_RESCISAO, key="resc_tipo")
+                aviso_r = c2.selectbox("Aviso Prévio", _tb.AVISOS, key="resc_aviso",
+                                       help="Indenizado: pago sem trabalhar (conta como tempo de serviço).")
+                _row_r = _funcs_r[_funcs_r["Nome"] == func_r] if func_r else pd.DataFrame()
+                sal_r = _to_num(_row_r["Salário (R$)"].iloc[0]) if not _row_r.empty else 0.0
+                adm_r = _para_date(_row_r["Admissão"].iloc[0]) if not _row_r.empty else None
+                _dt_r = _para_date(data_r) or date.today()
+                c1.caption(f"Salário: **{_fmt(sal_r)}** · Admissão: **{adm_r.strftime('%d/%m/%Y') if adm_r else 'não informada'}**")
+                if not adm_r:
+                    c2.caption("⚠️ Sem data de admissão: 13º e férias contam só o ano corrente.")
+
+                saldo_fgts_r = st.number_input(
+                    "Saldo do FGTS para fins rescisórios (R$)", min_value=0.0, step=100.0,
+                    value=_tb.saldo_fgts_estimado(sal_r, adm_r, _dt_r),
+                    key=f"resc_fgts_{func_r}", help="Use o valor do extrato da Caixa. O sugerido é 8% × salário × meses de casa.")
+                sug = _tb.sugestao_rescisao(sal_r, adm_r, _dt_r, tipo_r, aviso_r, saldo_fgts_r)
+
+                st.markdown("##### Verbas Rescisórias")
+                st.caption(f"13º: {sug['avos_13']}/12 · Férias proporcionais: {sug['avos_ferias']}/12"
+                           + (f" · Aviso: {sug['dias_aviso']} dias" if sug["dias_aviso"] else "")
+                           + (f" · Multa FGTS: {sug['pct_multa']:.0%}" if sug["pct_multa"] else ""))
+                _k = f"{func_r}_{data_r}_{tipo_r}_{aviso_r}_{saldo_fgts_r}"  # muda a chave = volta à sugestão
+                c3, c4 = st.columns(2)
+                ss_r  = c3.number_input("Saldo de salário", min_value=0.0, value=sug["saldo_salario"], step=100.0, key=f"r_ss_{_k}")
+                fv_r  = c4.number_input("Férias vencidas", min_value=0.0, value=0.0, step=100.0, key=f"r_fv_{_k}",
+                                        help="Períodos completos ainda não gozados — o sistema não sabe; informe se houver.")
+                fp_r  = c3.number_input("Férias proporcionais", min_value=0.0, value=sug["ferias_proporcionais"], step=100.0, key=f"r_fp_{_k}")
+                d13_r = c4.number_input("13º proporcional", min_value=0.0, value=sug["decimo_terceiro"], step=100.0, key=f"r_13_{_k}")
+                ap_r  = c3.number_input("Aviso prévio indenizado", min_value=0.0, value=sug["aviso_previo"], step=100.0, key=f"r_ap_{_k}")
+                mf_r  = c4.number_input("Multa do FGTS", min_value=0.0, value=sug["multa_fgts"], step=100.0, key=f"r_mf_{_k}")
+                desc_r = c3.number_input("Descontos", min_value=0.0, value=0.0, step=100.0, key=f"r_desc_{_k}",
+                                         help="Ex.: aviso não cumprido no pedido de demissão, adiantamentos.")
+                tc_r = round((fv_r + fp_r) / 3, 2)
+                c4.metric("1/3 constitucional (sobre férias)", _fmt(tc_r))
+                total_br = ss_r + fv_r + fp_r + tc_r + d13_r + ap_r + mf_r
+                total_liq = total_br - desc_r
+                m1, m2 = st.columns(2)
+                m1.metric("Total Bruto (estimado)", _fmt(total_br))
+                m2.metric("Total após descontos", _fmt(total_liq), help="Antes de INSS e IRRF do empregado.")
+                obs_r = st.text_area("Observação", height=60, key="resc_obs")
+                marcar_dem = st.checkbox("Marcar o funcionário como Demitido", value=True, key="resc_marcar")
+                if st.button("💾 Salvar Rescisão", type="primary", key="btn_resc_salvar"):
                     if not func_r.strip():
                         st.error("Selecione um funcionário.")
                     else:
@@ -5195,9 +5261,18 @@ def pagina_pessoal():
                             st.stop()
                         st.session_state.rescisoes = pd.concat([
                             st.session_state.rescisoes,
-                            pd.DataFrame([{"ID": _next_id(st.session_state.rescisoes), "SB_ID": sb_r or None, **dados_r}])
+                            pd.DataFrame([{"ID": _next_id(st.session_state.rescisoes), "SB_ID": sb_r, **dados_r}])
                         ], ignore_index=True)
-                        _notify(f"Rescisão de **{func_r}** — **{_fmt(total_liq)}** calculada!"); st.rerun()
+                        _msg_r = f"Rescisão de **{func_r}** — **{_fmt(total_liq)}** calculada!"
+                        if marcar_dem and not _row_r.empty:
+                            _uuid_dem = _sb_id(st.session_state.funcionarios, _row_r["ID"].iloc[0])
+                            if _uuid_dem and sync.colaborador_save({"Situação": "Demitido"}, sb_id=_uuid_dem):
+                                st.session_state.funcionarios.loc[
+                                    st.session_state.funcionarios["ID"] == _row_r["ID"].iloc[0], "Situação"] = "Demitido"
+                                _msg_r += " Funcionário marcado como Demitido."
+                            else:
+                                _msg_r += " ⚠️ Não foi possível marcá-lo como Demitido."
+                        _notify(_msg_r); st.rerun()
 
             with tab_r_lista:
                 df_r = st.session_state.rescisoes.copy()

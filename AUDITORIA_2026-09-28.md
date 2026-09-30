@@ -32,7 +32,11 @@ A parte de atividades/encarregados/Telegram (em standby) ficou fora.
   - Faltas e pontos do mesmo dia se sobrescreviam sem aviso.
 - **Antes de publicar:** rodar `supabase/migrations/20260929000000_estoque_minimo_tipo_falta.sql`.
 
-**Pendentes:** seções 4 e 5.
+**Status:** publicado em 29/09 (PR #4).
+
+**3ª leva** (branch `fix/auditoria-folha`): seção **4**, feita como estimativa (opção A). Não precisa de migration.
+
+**Pendentes:** seção 5.
 
 ## 1. Crítico — perde dados ou erra dinheiro
 
