@@ -636,6 +636,11 @@ def gerar_folha_pagamento(dados: dict) -> bytes:
 
     story.append(Spacer(1, 4*mm))
     story.append(Paragraph(
+        "ESTIMATIVA — INSS do empregado a 11% fixo, sem IRRF e sem variáveis. "
+        "Não substitui a folha calculada pela contabilidade.",
+        st["rodape"]
+    ))
+    story.append(Paragraph(
         f"MBR Engenharia Ltda — Folha de Pagamento {ref_mes} — Obra: {obra} — "
         f"Gerado em {hoje} pelo ERP MBR",
         st["rodape"]
