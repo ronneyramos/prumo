@@ -22,9 +22,17 @@ A parte de atividades/encarregados/Telegram (em standby) ficou fora.
 - Banco fora do ar aparecia como "empresa sem dados".
 - Havia duas telas de medição com regras diferentes; agora só o menu Medição registra medições.
 
-**Pendentes:** seções 2 (exceto os itens acima), 4 e 5.
+**Status:** publicado em 29/09 (PR #3).
 
-**Antes de publicar:** rodar `supabase/migrations/20260928000000_correcoes_auditoria.sql` no SQL Editor.
+**2ª leva** (branch `fix/auditoria-telas`)
+- **Corrigidos:** itens **11 a 25** da seção 2.
+- **Encontrados durante a correção e também corrigidos:**
+  - As cores da DRE mostravam valores negativos em verde.
+  - A DRE usava contrato × % físico como receita; agora usa as medições faturadas.
+  - Faltas e pontos do mesmo dia se sobrescreviam sem aviso.
+- **Antes de publicar:** rodar `supabase/migrations/20260929000000_estoque_minimo_tipo_falta.sql`.
+
+**Pendentes:** seções 4 e 5.
 
 ## 1. Crítico — perde dados ou erra dinheiro
 

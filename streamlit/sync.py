@@ -825,7 +825,7 @@ def faltas_load(_empresa_ignorado: str = "") -> pd.DataFrame:
             col_n  = (row.get("colaboradores") or {}).get("nome", "")
             obra_n = (row.get("obras") or {}).get("nome", "")
             obs    = row.get("observacao") or ""
-            tipo   = "Abono" if obs.startswith("ABONO:") else "Falta"
+            tipo   = row.get("tipo_falta") or ("Abono" if obs.startswith("ABONO:") else "Falta")
             obs    = obs.removeprefix("ABONO:").strip()
             rows.append({
                 "ID":          i,
@@ -852,16 +852,16 @@ def falta_save(dados: dict, obra_sb_id: str | None = None) -> str | None:
             print(f"[sync.falta_save] Colaborador não encontrado: {func_nome}")
             return None
 
-        tipo   = dados.get("Tipo", "Falta")
-        obs    = dados.get("Observação", "") or ""
-        obs_sb = f"ABONO:{obs}" if tipo == "Abono" else obs
-
         payload = {
             "colaborador_id": col_id,
             "obra_id":        obra_sb_id,
             "data":           _br_to_iso(dados.get("Data")) or datetime.now().strftime("%Y-%m-%d"),
             "falta":          True,
-            "observacao":     obs_sb,
+            "tipo_falta":     dados.get("Tipo") or "Injustificada",
+            "observacao":     dados.get("Observação", "") or "",
+            # Um dia é falta OU ponto batido: limpa os horários se havia ponto
+            "entrada": None, "saida_almoco": None, "retorno_almoco": None, "saida": None,
+            "horas_normais": 0, "horas_extras": 0,
             "empresa_id":     _empresa_id(),
         }
         res = _sb().table("ponto").upsert(payload, on_conflict="colaborador_id,data").execute()
@@ -931,6 +931,7 @@ def ponto_registro_save(dados: dict, obra_sb_id: str | None = None) -> str | Non
             "horas_normais":   dados.get("Horas Normais"),
             "horas_extras":    dados.get("Horas Extras"),
             "falta":           False,
+            "tipo_falta":      None,
             "observacao":      dados.get("Observação", "") or "",
             "empresa_id":      _empresa_id(),
         }
@@ -987,6 +988,8 @@ def estoque_movimento_save(dados: dict, obra_sb_id: str | None = None) -> bool:
         insumo_id = _get_or_create_insumo(desc, unid)
         if not insumo_id:
             return False
+        if dados.get("Estoque Mínimo"):  # informado no cadastro do insumo novo
+            insumo_minimo_save(insumo_id, dados["Estoque Mínimo"])
 
         if not obra_sb_id:  # obra_id é NOT NULL na tabela
             return False
@@ -1590,7 +1593,7 @@ def estoque_saldo_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     empty = pd.DataFrame(columns=_ESTOQUE_COLS)
     try:
         from db import sb
-        res = sb().table("estoque_saldo").select("*, insumos(codigo, descricao, unidade), obras(nome)").execute()
+        res = sb().table("estoque_saldo").select("*, insumos(codigo, descricao, unidade, estoque_minimo), obras(nome)").execute()
         dados = res.data or []
         rows = []
         for i, row in enumerate(dados, start=1):
@@ -1602,7 +1605,7 @@ def estoque_saldo_load(_empresa_ignorado: str = "") -> pd.DataFrame:
                 "Insumo": ins.get("descricao", ins.get("codigo", "?")),
                 "Unidade": ins.get("unidade", ""),
                 "Estoque Atual": float(row.get("saldo", 0) or 0),
-                "Estoque Mínimo": 0,
+                "Estoque Mínimo": float(ins.get("estoque_minimo") or 0),
                 "Obra": ob.get("nome", "?"),
                 "insumo_id": row.get("insumo_id", ""),
                 "obra_id": row.get("obra_id", ""),
@@ -1611,6 +1614,21 @@ def estoque_saldo_load(_empresa_ignorado: str = "") -> pd.DataFrame:
     except Exception:
         print("[sync.estoque_saldo_load] ERRO:\n", traceback.format_exc())
         return empty
+
+
+def insumo_minimo_save(insumo_id: str, minimo: float) -> bool:
+    """Estoque mínimo do insumo (vale para todas as obras)."""
+    try:
+        from db import sb
+        res = sb().table("insumos").update({"estoque_minimo": float(minimo or 0)}).eq("id", insumo_id).execute()
+        return bool(res.data)
+    except Exception:
+        print("[sync.insumo_minimo_save] ERRO:\n", traceback.format_exc())
+        return False
+
+
+# No banco o tipo é ENTRADA/SAIDA/AJUSTE; a tela filtra por "Entrada"/"Saída"
+_TIPO_MOV_APP = {"ENTRADA": "Entrada", "SAIDA": "Saída", "AJUSTE": "Ajuste"}
 
 
 @_cache_por_empresa(ttl=60, show_spinner="Carregando movimentacoes...")
@@ -1632,7 +1650,7 @@ def estoque_movimentos_load(_empresa_ignorado: str = "") -> pd.DataFrame:
                 "ID": i,
                 "SB_ID": row.get("id", ""),
                 "Data": dt,
-                "Tipo": row.get("tipo", ""),
+                "Tipo": _TIPO_MOV_APP.get(row.get("tipo", ""), row.get("tipo", "")),
                 "Insumo": ins.get("descricao", "?"),
                 "Quantidade": float(row.get("quantidade", 0) or 0),
                 "Obra": ob.get("nome", "?"),
@@ -1778,12 +1796,14 @@ def importar_nfe(nota, obra_sb_id: str | None, dar_entrada_estoque: bool = True)
             "itens_ok": itens_ok, "itens_falha": itens_falha, "contas": contas}
 
 
-def fornecedor_delete(sb_id: str):
+def fornecedor_delete(sb_id: str) -> bool:
     try:
         from db import fornecedor_deletar
         fornecedor_deletar(sb_id)
+        return True
     except Exception:
         print("[sync.fornecedor_delete] ERRO:\n", traceback.format_exc())
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1830,16 +1850,19 @@ def cotacao_save(dados: dict, itens: list[dict] | None = None, sb_id: str | None
     try:
         from db import cotacao_criar, cotacao_atualizar, cotacao_itens_inserir, cotacao_itens_deletar
         eid = _empresa_id()
-        payload = {
-            "data": dados.get("Data") or None,
-            "validade": dados.get("Validade") or None,
-            "condicao_pagamento": dados.get("Condição Pag.") or None,
-            "prazo_entrega": str(dados.get("Prazo Entrega") or "").strip() or None,
-            "observacao": dados.get("Observação") or None,
-            "total": float(dados.get("Total (R$)", 0) or 0),
-            "vencedora": dados.get("Vencedora", "Não") == "Sim",
-            "empresa_id": eid,
+        campos = {
+            "Data":          ("data",               lambda v: v or None),
+            "Validade":      ("validade",           lambda v: v or None),
+            "Condição Pag.": ("condicao_pagamento", lambda v: v or None),
+            "Prazo Entrega": ("prazo_entrega",      lambda v: str(v or "").strip() or None),
+            "Observação":    ("observacao",         lambda v: v or None),
+            "Total (R$)":    ("total",              lambda v: float(v or 0)),
+            "Vencedora":     ("vencedora",          lambda v: v == "Sim"),
         }
+        # Em edição só vão os campos informados: marcar a vencedora não pode zerar a cotação
+        payload = {col: conv(dados[k]) for k, (col, conv) in campos.items() if k in dados or not sb_id}
+        if not sb_id:
+            payload["empresa_id"] = eid
         obra_nome = dados.get("Obra", "")
         if obra_nome:
             try:
@@ -1893,12 +1916,15 @@ def cotacao_save(dados: dict, itens: list[dict] | None = None, sb_id: str | None
         return None
 
 
-def cotacao_delete(sb_id: str):
+def cotacao_delete(sb_id: str) -> bool:
     try:
-        from db import cotacao_deletar
+        from db import cotacao_itens_deletar, cotacao_deletar
+        cotacao_itens_deletar(sb_id)
         cotacao_deletar(sb_id)
+        return True
     except Exception:
         print("[sync.cotacao_delete] ERRO:\n", traceback.format_exc())
+        return False
 
 
 @_cache_por_empresa(ttl=60)
