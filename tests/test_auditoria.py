@@ -156,3 +156,30 @@ def test_atualizar_eap_mantem_ids_e_nao_apaga_etapa_com_custo(monkeypatch):
     assert "2" in eap        # tem lançamento ligado: fica
     assert "3" not in eap    # sem vínculo: removida
     assert "4" in eap
+
+
+# ── 2ª leva ─────────────────────────────────────────────────────────────────
+
+def test_falta_grava_tipo_e_limpa_horarios(monkeypatch):
+    enviado = {}
+
+    class _T:
+        def upsert(self, d, on_conflict=None):
+            enviado.update(d)
+            return self
+
+        def execute(self):
+            return type("R", (), {"data": [{"id": "p1"}]})()
+
+    monkeypatch.setattr(sync, "_colaborador_uuid_por_nome", lambda n: "col-1")
+    monkeypatch.setattr(db, "sb", lambda: type("C", (), {"table": lambda self, t: _T()})())
+    assert sync.falta_save({"Funcionário": "João", "Data": "10/09/2026", "Tipo": "Atestado"}) == "p1"
+    assert enviado["tipo_falta"] == "Atestado" and enviado["falta"] is True
+    assert enviado["entrada"] is None and enviado["horas_normais"] == 0
+
+
+def test_marcar_vencedora_nao_zera_a_cotacao(monkeypatch):
+    enviado = {}
+    monkeypatch.setattr(db, "cotacao_atualizar", lambda cid, d: enviado.update(d) or {"id": cid})
+    assert sync.cotacao_save({"Vencedora": "Sim"}, sb_id="cot-1") == "cot-1"
+    assert enviado == {"vencedora": True}
